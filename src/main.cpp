@@ -5,12 +5,13 @@ int myFunction(int, int);
 
 void setup() {
   // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+  Serial.begin(115200);
+  Serial.println("ESP32 Booted.");
 }
 
 void loop() {
-  
-  // put your main code here, to run repeatedly:
+  Serial.println("Hello, from ESP32!");
+  delay(1000);
 }
 
 // put function definitions here:
