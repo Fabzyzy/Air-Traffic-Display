@@ -1,6 +1,0 @@
-Hardware setup: Learn the ESP32, breadboard, display wiring, and button input.
-Graphics: Draw pixels, lines, circles, text, and simple airplane icons on the GC9A01 display.
-User interface: Build a multi-page menu controlled by a button.
-Networking: Connect the ESP32 to Wi-Fi and fetch data from the internet.
-Aircraft tracking: Retrieve nearby aircraft positions and render them on your radar screen.
-Refinement: Add smooth animation, range rings, north indicator, labels, brightness control, and other polish.
