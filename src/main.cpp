@@ -1,20 +1,19 @@
 #include <Arduino.h>
+#include "Encoder.h"
+#include "App.h"
 
-// put function declarations here:
-int myFunction(int, int);
+Encoder encoder;
+App app;
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
+  encoder.begin();
   Serial.println("ESP32 Booted.");
 }
 
 void loop() {
-  Serial.println("Hello, from ESP32!");
-  delay(1000);
+  encoder.update();
 }
 
 // put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
-}
