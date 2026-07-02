@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include "Encoder.h"
 #include "App.h"
-#include <Wifi.h>
+#include <WiFi.h>
 #include "Wifi_manager.h"
 
 Encoder encoder;

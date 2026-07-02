@@ -9,4 +9,10 @@ public:
     void startSetupPortal();
     void saveCredentials(String ssid, String password);
     void clearCredentials();
+
+private:
+    bool setupPortalActive;
+    void handleSetupRoot();
+    void handleSetupSubmit();
+    void sendPortalPage(String message);
 };
