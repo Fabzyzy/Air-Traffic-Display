@@ -4,15 +4,8 @@
 class Wifi_manager
 {
 public:
-    bool loadCredentials();
-    bool connectWifi();
+    Wifi_manager();
+    bool connectWifi(const String &ssid = "", const String &password = "");
     void startSetupPortal();
-    void saveCredentials(String ssid, String password);
     void clearCredentials();
-
-private:
-    bool setupPortalActive;
-    void handleSetupRoot();
-    void handleSetupSubmit();
-    void sendPortalPage(String message);
 };
