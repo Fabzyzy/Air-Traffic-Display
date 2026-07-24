@@ -1,0 +1,20 @@
+LCD (GC9A01 SPI Display)
+
+LCD Pin	    ESP32 Pin	Notes
+    VCC	    3.3V	    Power
+    GND	    GND	        Ground
+    SCL	    GPIO 18	    SPI Clock (SCK)
+    SDA	    GPIO 23	    SPI MOSI (Data)
+    CS	    GPIO 5	    Chip Select
+    DC	    GPIO 27	    Data/Command
+    RST	    GPIO 33	    Reset
+
+Rotary Encoder
+(CLK, DT, SW, +, GND):
+
+Encoder Pin	    ESP32 Pin	Notes
+        CLK	    GPIO 25	    Rotation signal A
+        DT	    GPIO 26	    Rotation signal B
+        SW	    GPIO 32	    Push button
+        +	    3.3V	    Power
+        GND	    GND	        Ground
