@@ -67,7 +67,14 @@ bool AircraftDataFetcher::fetchAndPrintAircrafts()
     String payload = http.getString();
     http.end();
 
-    DynamicJsonDocument doc(20000);
+    // Check if payload is empty
+    if (payload.length() == 0)
+    {
+        Serial.println("HTTP response payload is empty!");
+        return false;
+    }
+
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, payload);
     if (error)
     {

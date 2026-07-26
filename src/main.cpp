@@ -29,6 +29,9 @@ void setup() {
     Serial.println("Connected to WiFi.");
     Serial.println("Starting Radar...");
     aircraftFetcher.setLocation(51.5072f, -0.1276f, 100);
+    
+    // Give the connection a moment to stabilize before first fetch
+    delay(2000);
     aircraftFetcher.fetchAndPrintAircrafts();
   }
 }
