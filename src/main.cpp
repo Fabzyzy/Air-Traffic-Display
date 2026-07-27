@@ -44,7 +44,7 @@ void drawVintageRadarSweep()
     tft.drawCircle(cx, cy, i, 0x0340);
   }
 
-  for (int i = 0; i < 360; i += 45)
+  for (int i = 0; i < 360; i += 20)
   {
     float rad = i * 0.017453f;
     int x = cx + cos(rad) * radius;
