@@ -1,59 +1,147 @@
 #include "App.h"
 #include <Arduino.h>
 
-const char* App::getPageName()
+App::App()
 {
-    switch(currentPage)
+    activeScreen = &mainMenuScreen;
+}
+
+void App::begin()
+{
+    setState(AppState::MAIN_MENU);
+}
+
+void App::drawCurrentScreen()
+{
+    if (!screenDirty)
     {
-        case Page::RADAR:
-            return "Radar";
-        case Page::MENU:
-            return "Menu";
-        case Page::INFO:
-            return "Info";
+        return;
     }
-    return "Unknown";
+
+    if (activeScreen != nullptr)
+    {
+        activeScreen->draw();
+    }
+    screenDirty = false;
+}
+
+void App::setState(AppState newState)
+{
+    if (currentState == newState && !hasEnteredState)
+    {
+        hasEnteredState = true;
+    }
+
+    currentState = newState;
+    screenDirty = true;
+    hasEnteredState = true;
+
+    switch (currentState)
+    {
+        case AppState::MAIN_MENU:
+            activeScreen = &mainMenuScreen;
+            mainMenuScreen.setSelection(selectedIndex);
+            Serial.println("[MENU]");
+            Serial.println("Entering Main Menu");
+            break;
+        case AppState::RADAR_DISPLAY:
+            activeScreen = &radarScreen;
+            Serial.println("[MENU]");
+            Serial.println("Entering Radar Display");
+            break;
+        case AppState::WIFI_SETTINGS:
+            activeScreen = &wifiScreen;
+            Serial.println("[MENU]");
+            Serial.println("Entering WiFi Settings");
+            break;
+    }
+
+    drawCurrentScreen();
+}
+
+void App::update()
+{
+    if (activeScreen != nullptr)
+    {
+        activeScreen->update();
+    }
+    drawCurrentScreen();
 }
 
 void App::nextPage()
 {
-    switch(currentPage)
+    if (currentState != AppState::MAIN_MENU)
     {
-        case Page::RADAR:
-            currentPage = Page::MENU;
-            break;
-        case Page::MENU:
-            currentPage = Page::INFO;
-            break;
-        case Page::INFO:
-            currentPage = Page::RADAR;
-            break;
+        return;
     }
-    Serial.print("Button turned into ");
-    Serial.println(getPageName());
+
+    selectedIndex = (selectedIndex + 1) % 2;
+    mainMenuScreen.setSelection(selectedIndex);
+    screenDirty = true;
+
+    Serial.println("[MENU]");
+    if (selectedIndex == 0)
+    {
+        Serial.println("Selection -> Radar Display");
+    }
+    else
+    {
+        Serial.println("Selection -> WiFi Settings");
+    }
 }
 
 void App::previousPage()
 {
-    switch(currentPage)
+    if (currentState != AppState::MAIN_MENU)
     {
-        case Page::RADAR:
-            currentPage = Page::INFO;
-            break;
-        case Page::MENU:
-            currentPage = Page::RADAR;
-            break;
-        case Page::INFO:
-            currentPage = Page::MENU;
-            break;
+        return;
     }
-    Serial.print("Button turned into ");
-    Serial.println(getPageName());
+
+    selectedIndex = (selectedIndex == 0) ? 1 : 0;
+    mainMenuScreen.setSelection(selectedIndex);
+    screenDirty = true;
+
+    Serial.println("[MENU]");
+    if (selectedIndex == 0)
+    {
+        Serial.println("Selection -> Radar Display");
+    }
+    else
+    {
+        Serial.println("Selection -> WiFi Settings");
+    }
 }
 
 void App::buttonPressed()
 {
-    Serial.print("Button pressed on ");
-    Serial.println(getPageName());
+    if (currentState == AppState::MAIN_MENU)
+    {
+        if (selectedIndex == 0)
+        {
+            setState(AppState::RADAR_DISPLAY);
+        }
+        else
+        {
+            setState(AppState::WIFI_SETTINGS);
+        }
+        return;
+    }
+
+    if (currentState != AppState::MAIN_MENU)
+    {
+        Serial.println("[MENU]");
+        Serial.println("Returning to Main Menu");
+        setState(AppState::MAIN_MENU);
+    }
+}
+
+void App::handleLongPress()
+{
+    if (currentState != AppState::MAIN_MENU)
+    {
+        Serial.println("[MENU]");
+        Serial.println("Returning to Main Menu");
+        setState(AppState::MAIN_MENU);
+    }
 }
 

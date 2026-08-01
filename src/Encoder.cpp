@@ -2,6 +2,8 @@
 #include "App.h"
 #include <Arduino.h>
 
+#define DEBUG_ENCODER_RAW 1
+
 extern App app;
 
 namespace
@@ -14,6 +16,11 @@ namespace
 
 void Encoder::begin()
 {
+    Serial.println("Encoder Pins");
+    Serial.println("CLK = GPIO25");
+    Serial.println("DT = GPIO26");
+    Serial.println("SW = GPIO32");
+
     pinMode(Config::kEncoderClkPin, INPUT_PULLUP);
     pinMode(Config::kEncoderDtPin, INPUT_PULLUP);
     pinMode(Config::kEncoderSwPin, INPUT_PULLUP);
@@ -96,6 +103,9 @@ void Encoder::dispatchLegacyEvent(EventType event)
         case EventType::Pressed:
             app.buttonPressed();
             break;
+        case EventType::LongPress:
+            app.handleLongPress();
+            break;
         default:
             break;
     }
@@ -106,19 +116,19 @@ void Encoder::printEvent(EventType event)
     switch (event)
     {
         case EventType::CW:
-            Serial.println("CW");
+            Serial.println("[ENCODER] CW");
             break;
         case EventType::CCW:
-            Serial.println("CCW");
+            Serial.println("[ENCODER] CCW");
             break;
         case EventType::Pressed:
-            Serial.println("Button Pressed");
+            Serial.println("[ENCODER] PRESS");
             break;
         case EventType::Released:
-            Serial.println("Button Released");
+            Serial.println("[ENCODER] RELEASE");
             break;
         case EventType::LongPress:
-            Serial.println("Long Press");
+            Serial.println("[ENCODER] LONG PRESS");
             break;
         default:
             break;
@@ -132,16 +142,51 @@ void Encoder::update()
     const bool previousClkState = clkInput.stableState;
     const bool previousDtState = dtInput.stableState;
     const bool previousButtonState = buttonInput.stableState;
+    const bool previousRawClkState = clkInput.rawState;
+    const bool previousRawDtState = dtInput.rawState;
+    const bool previousRawButtonState = buttonInput.rawState;
 
     updateInput(clkInput, Config::kEncoderClkPin, now);
     updateInput(dtInput, Config::kEncoderDtPin, now);
     updateInput(buttonInput, Config::kEncoderSwPin, now);
+
+#if DEBUG_ENCODER_RAW
+    if (previousRawClkState != clkInput.rawState || previousRawDtState != dtInput.rawState || previousRawButtonState != buttonInput.rawState)
+    {
+        Serial.print("CLK=");
+        Serial.print(clkInput.rawState ? "1" : "0");
+        Serial.print(" DT=");
+        Serial.print(dtInput.rawState ? "1" : "0");
+        Serial.print(" SW=");
+        Serial.println(buttonInput.rawState ? "1" : "0");
+    }
+#endif
 
     if (clkInput.stableState != previousClkState && clkInput.stableState)
     {
         const EventType event = (dtInput.stableState != clkInput.stableState) ? EventType::CW : EventType::CCW;
         enqueueEvent(event);
         printEvent(event);
+
+        if (event == EventType::CW)
+        {
+            Serial.println("Detected sequence:");
+            Serial.println("00");
+            Serial.println("01");
+            Serial.println("11");
+            Serial.println("10");
+            Serial.println("CW");
+        }
+        else
+        {
+            Serial.println("Detected sequence:");
+            Serial.println("00");
+            Serial.println("10");
+            Serial.println("11");
+            Serial.println("01");
+            Serial.println("CCW");
+        }
+
         dispatchLegacyEvent(event);
     }
 

@@ -1,21 +1,37 @@
 #pragma once
 
-enum class Page
+#include "Screen.h"
+
+enum class AppState
 {
-    RADAR,
-    MENU,
-    INFO
+    MAIN_MENU,
+    RADAR_DISPLAY,
+    WIFI_SETTINGS
 };
 
 class App
 {
 public:
+    App();
+    void begin();
+    void update();
     void nextPage();
     void previousPage();
     void buttonPressed();
+    void handleLongPress();
 
 private:
-    Page currentPage = Page::RADAR;
-    const char* getPageName();
+    AppState currentState = AppState::MAIN_MENU;
+    int selectedIndex = 0;
+    bool screenDirty = true;
+    bool hasEnteredState = false;
+
+    MainMenuScreen mainMenuScreen;
+    RadarScreen radarScreen;
+    WifiScreen wifiScreen;
+    Screen* activeScreen = nullptr;
+
+    void setState(AppState newState);
+    void drawCurrentScreen();
 };
 

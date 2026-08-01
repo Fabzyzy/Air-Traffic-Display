@@ -22,65 +22,19 @@ Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
 unsigned long lastAircraftFetch = 0;
 const unsigned long kAircraftFetchIntervalMs = 10000;
 
-int sweepAngle = 0;
-unsigned long lastSweepMs = 0;
-
-void drawVintageRadarSweep()
+void setup()
 {
-  const int cx = 120;
-  const int cy = 120;
-  const int radius = 100;
-
-  tft.fillScreen(0x0000);
-
-  tft.drawCircle(cx, cy, radius, 0x07E0);
-  tft.drawCircle(cx, cy, radius / 2, 0x0520);
-  tft.drawCircle(cx, cy, radius / 4, 0x0310);
-  tft.drawLine(cx, 20, cx, 220, 0x0520);
-  tft.drawLine(20, cy, 220, cy, 0x0520);
-
-  for (int i = 0; i <= radius; i += 20)
-  {
-    tft.drawCircle(cx, cy, i, 0x0340);
-  }
-
-  for (int i = 0; i < 360; i += 45)
-  {
-    float rad = i * 0.017453f;
-    int x = cx + cos(rad) * radius;
-    int y = cy + sin(rad) * radius;
-    tft.drawLine(cx, cy, x, y, 0x0320);
-  }
-
-  float rad = sweepAngle * 0.017453f;
-  int x = cx + cos(rad) * radius;
-  int y = cy + sin(rad) * radius;
-  tft.drawLine(cx, cy, x, y, 0xFFFF);
-
-  tft.setTextWrap(false);
-  tft.setTextSize(1);
-  tft.setTextColor(0x07E0);
-  tft.setCursor(10, 10);
-  tft.print("Vintage Radar");
-}
-
-void runDisplayTest()
-{
-  unsigned long now = millis();
-  if (now - lastSweepMs < 30)
-  {
-    return;
-  }
-
-  lastSweepMs = now;
-  sweepAngle = (sweepAngle + 3) % 360;
-  drawVintageRadarSweep();
-}
-
-void setup() {
   Serial.begin(115200);
+  Serial.println("==============================");
+  Serial.println("Air Traffic Display Boot");
+  Serial.println("==============================");
+  Serial.println();
+  Serial.println("Serial initialized");
+  Serial.println();
+  Serial.println("Boot complete");
   delay(5000);
 
+  Serial.println("[BOOT] Initializing Display...");
   SPI.begin(18, -1, 23, 5);
   tft.begin();
   tft.setRotation(0);
@@ -89,14 +43,21 @@ void setup() {
   tft.setTextSize(2);
   tft.setCursor(20, 90);
   tft.print("Booting...");
+  Serial.println("[BOOT] Display OK");
 
+  Serial.println("[BOOT] Initializing Encoder...");
   encoder.begin();
-  Serial.println("ESP32 Booted.");
+  Serial.println("[BOOT] Encoder OK");
 
+  Serial.println("[BOOT] Initializing WiFi...");
   if (!wifi.connectWifi())
   {
     wifi.startSetupPortal();
   }
+  Serial.println("[BOOT] WiFi OK");
+
+  Serial.println("[BOOT] Entering Main Menu");
+  app.begin();
 
   if (WiFi.status() == WL_CONNECTED)
   {
@@ -104,15 +65,15 @@ void setup() {
     Serial.println("Starting Radar...");
     aircraftFetcher.setLocation(51.5072f, -0.1276f, 100);
 
-    // Give the connection a moment to stabilize before first fetch
     delay(2000);
     aircraftFetcher.fetchAndPrintAircrafts();
   }
 }
 
-void loop() {
+void loop()
+{
   encoder.update();
-  runDisplayTest();
+  app.update();
 
   unsigned long now = millis();
   if (now - lastAircraftFetch >= kAircraftFetchIntervalMs)
