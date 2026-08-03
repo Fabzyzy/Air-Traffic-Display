@@ -8,6 +8,12 @@
 #include "Wifi_manager.h"
 #include "AircraftData.h"
 
+#define DEBUG_GENERAL 1
+#define DEBUG_ENCODER 0
+#define DEBUG_HTTP 0
+#define DEBUG_AIRCRAFT 0
+#define DEBUG_WIFI 1
+
 Encoder encoder;
 App app;
 Wifi_manager wifi;
@@ -29,12 +35,12 @@ void setup()
   Serial.println("Air Traffic Display Boot");
   Serial.println("==============================");
   Serial.println();
-  Serial.println("Serial initialized");
-  Serial.println();
-  Serial.println("Boot complete");
+  Serial.println("[BOOT] Air Traffic Display Started");
   delay(5000);
 
+#if DEBUG_GENERAL
   Serial.println("[BOOT] Initializing Display...");
+#endif
   SPI.begin(18, -1, 23, 5);
   tft.begin();
   tft.setRotation(0);
@@ -43,30 +49,47 @@ void setup()
   tft.setTextSize(2);
   tft.setCursor(20, 90);
   tft.print("Booting...");
+#if DEBUG_GENERAL
   Serial.println("[BOOT] Display OK");
+#endif
 
+#if DEBUG_GENERAL
   Serial.println("[BOOT] Initializing Encoder...");
+#endif
   encoder.begin();
+#if DEBUG_GENERAL
   Serial.println("[BOOT] Encoder OK");
+#endif
 
+#if DEBUG_GENERAL
   Serial.println("[BOOT] Initializing WiFi...");
+#endif
   if (!wifi.connectWifi())
   {
     wifi.startSetupPortal();
   }
+#if DEBUG_GENERAL
   Serial.println("[BOOT] WiFi OK");
+#endif
 
   Serial.println("[BOOT] Entering Main Menu");
   app.begin();
 
   if (WiFi.status() == WL_CONNECTED)
   {
-    Serial.println("Connected to WiFi.");
-    Serial.println("Starting Radar...");
+#if DEBUG_WIFI
+    Serial.println("[WIFI] Connected to WiFi.");
+    Serial.println("[BOOT] Starting Radar...");
+#else
+    Serial.println("[WIFI] Connected");
+#endif
     aircraftFetcher.setLocation(51.5072f, -0.1276f, 100);
 
     delay(2000);
-    aircraftFetcher.fetchAndPrintAircrafts();
+    if (aircraftFetcher.fetchAndPrintAircrafts())
+    {
+      app.setAircraftData(aircraftFetcher.getAircrafts(), aircraftFetcher.getAircraftCount());
+    }
   }
 }
 
@@ -81,7 +104,10 @@ void loop()
     lastAircraftFetch = now;
     if (WiFi.status() == WL_CONNECTED)
     {
-      aircraftFetcher.fetchAndPrintAircrafts();
+      if (aircraftFetcher.fetchAndPrintAircrafts())
+      {
+        app.setAircraftData(aircraftFetcher.getAircrafts(), aircraftFetcher.getAircraftCount());
+      }
     }
   }
 }

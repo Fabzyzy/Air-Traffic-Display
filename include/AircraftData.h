@@ -18,9 +18,15 @@ class AircraftDataFetcher
 public:
     bool fetchAndPrintAircrafts();
     void setLocation(float latitude, float longitude, int radiusKm);
+    const Aircraft* getAircrafts() const;
+    int getAircraftCount() const;
 
 private:
+    static constexpr int kMaxAircraft = 32;
+
     float latitude_ = 51.5072f;
     float longitude_ = -0.1276f;
     int radiusKm_ = 100;
+    Aircraft aircrafts_[kMaxAircraft];
+    int aircraftCount_ = 0;
 };

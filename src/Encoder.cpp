@@ -2,7 +2,9 @@
 #include "App.h"
 #include <Arduino.h>
 
-#define DEBUG_ENCODER_RAW 1
+#define DEBUG_GENERAL 1
+#define DEBUG_ENCODER 0
+#define DEBUG_ENCODER_RAW 0
 
 extern App app;
 
@@ -16,10 +18,12 @@ namespace
 
 void Encoder::begin()
 {
+#if DEBUG_ENCODER
     Serial.println("Encoder Pins");
     Serial.println("CLK = GPIO25");
     Serial.println("DT = GPIO26");
     Serial.println("SW = GPIO32");
+#endif
 
     pinMode(Config::kEncoderClkPin, INPUT_PULLUP);
     pinMode(Config::kEncoderDtPin, INPUT_PULLUP);
@@ -113,6 +117,7 @@ void Encoder::dispatchLegacyEvent(EventType event)
 
 void Encoder::printEvent(EventType event)
 {
+#if DEBUG_ENCODER
     switch (event)
     {
         case EventType::CW:
@@ -133,6 +138,7 @@ void Encoder::printEvent(EventType event)
         default:
             break;
     }
+#endif
 }
 
 void Encoder::update()
@@ -168,6 +174,7 @@ void Encoder::update()
         enqueueEvent(event);
         printEvent(event);
 
+#if DEBUG_ENCODER
         if (event == EventType::CW)
         {
             Serial.println("Detected sequence:");
@@ -186,6 +193,7 @@ void Encoder::update()
             Serial.println("01");
             Serial.println("CCW");
         }
+#endif
 
         dispatchLegacyEvent(event);
     }

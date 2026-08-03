@@ -4,6 +4,10 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
+#define DEBUG_GENERAL 1
+#define DEBUG_HTTP 0
+#define DEBUG_AIRCRAFT 0
+
 namespace
 {
     String buildUrl(float latitude, float longitude, int radiusKm)
@@ -38,7 +42,9 @@ bool AircraftDataFetcher::fetchAndPrintAircrafts()
 {
     if (WiFi.status() != WL_CONNECTED)
     {
-        Serial.println("Wi-Fi not connected, skipping ADS-B fetch.");
+#if DEBUG_GENERAL || DEBUG_HTTP
+        Serial.println("[AIRCRAFT] Wi-Fi not connected, skipping ADS-B fetch.");
+#endif
         return false;
     }
 
@@ -50,16 +56,20 @@ bool AircraftDataFetcher::fetchAndPrintAircrafts()
     int httpCode = http.GET();
     if (httpCode <= 0)
     {
-        Serial.print("HTTP GET failed: ");
+#if DEBUG_HTTP
+        Serial.print("[HTTP] GET failed: ");
         Serial.println(http.errorToString(httpCode));
+#endif
         http.end();
         return false;
     }
 
     if (httpCode != HTTP_CODE_OK)
     {
-        Serial.print("HTTP GET returned code: ");
+#if DEBUG_HTTP
+        Serial.print("[HTTP] Returned code: ");
         Serial.println(httpCode);
+#endif
         http.end();
         return false;
     }
@@ -67,10 +77,11 @@ bool AircraftDataFetcher::fetchAndPrintAircrafts()
     String payload = http.getString();
     http.end();
 
-    // Check if payload is empty
     if (payload.length() == 0)
     {
-        Serial.println("HTTP response payload is empty!");
+#if DEBUG_HTTP
+        Serial.println("[HTTP] Response payload is empty");
+#endif
         return false;
     }
 
@@ -78,18 +89,32 @@ bool AircraftDataFetcher::fetchAndPrintAircrafts()
     DeserializationError error = deserializeJson(doc, payload);
     if (error)
     {
-        Serial.print("JSON parse failed: ");
+#if DEBUG_HTTP
+        Serial.print("[HTTP] JSON parse failed: ");
         Serial.println(error.c_str());
+#endif
         return false;
     }
 
     JsonArray aircrafts = doc["ac"].as<JsonArray>();
-    Serial.println("--- Aircraft data ---");
-    Serial.print("Found aircraft count: ");
+    aircraftCount_ = 0;
+#if DEBUG_AIRCRAFT
+    Serial.println("[AIRCRAFT] Aircraft data received");
+    Serial.print("[AIRCRAFT] Count: ");
     Serial.println(aircrafts.size());
+#else
+    Serial.print("[AIRCRAFT] Updated (");
+    Serial.print(aircrafts.size());
+    Serial.println(" aircraft)");
+#endif
 
     for (JsonVariant value : aircrafts)
     {
+        if (aircraftCount_ >= kMaxAircraft)
+        {
+            break;
+        }
+
         JsonObject aircraft = value.as<JsonObject>();
 
         Aircraft entry;
@@ -100,7 +125,9 @@ bool AircraftDataFetcher::fetchAndPrintAircrafts()
         entry.speed = aircraft["gs"].as<float>();
         entry.heading = aircraft["track"].as<int>();
         entry.hex = safeString(aircraft["hex"]);
+        aircrafts_[aircraftCount_++] = entry;
 
+#if DEBUG_AIRCRAFT
         Serial.print("Callsign: ");
         Serial.println(entry.callsign.length() > 0 ? entry.callsign : "<none>");
         Serial.print("  Latitude: ");
@@ -116,7 +143,18 @@ bool AircraftDataFetcher::fetchAndPrintAircrafts()
         Serial.print("  Hex: ");
         Serial.println(entry.hex);
         Serial.println();
+#endif
     }
 
     return true;
+}
+
+const Aircraft* AircraftDataFetcher::getAircrafts() const
+{
+    return aircraftCount_ > 0 ? aircrafts_ : nullptr;
+}
+
+int AircraftDataFetcher::getAircraftCount() const
+{
+    return aircraftCount_;
 }

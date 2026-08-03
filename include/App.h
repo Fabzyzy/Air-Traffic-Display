@@ -6,7 +6,9 @@ enum class AppState
 {
     MAIN_MENU,
     RADAR_DISPLAY,
-    WIFI_SETTINGS
+    WIFI_SETTINGS,
+    WIFI_CONNECTION_STATUS,
+    WIFI_CHANGE_CONNECTION
 };
 
 class App
@@ -19,6 +21,7 @@ public:
     void previousPage();
     void buttonPressed();
     void handleLongPress();
+    void setAircraftData(const Aircraft* aircrafts, int count);
 
 private:
     AppState currentState = AppState::MAIN_MENU;
