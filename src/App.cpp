@@ -1,14 +1,11 @@
 #include "App.h"
 #include <Arduino.h>
 #include <WiFi.h>
+#include "AircraftData.h"
 #include "Wifi_manager.h"
 
 extern Wifi_manager wifi;
-
-namespace
-{
-    constexpr int kWifiMenuItems = 3;
-}
+extern AircraftDataFetcher aircraftFetcher;
 
 App::App()
 {
@@ -44,22 +41,26 @@ void App::setState(AppState newState)
     {
         case AppState::MAIN_MENU:
             activeScreen = &mainMenuScreen;
-            mainMenuScreen.setSelection(selectedIndex);
+            mainMenuScreen.setSelection(0);
+            stopAircraftUpdates();
             Serial.println("[MENU] Main Menu");
             break;
         case AppState::RADAR_DISPLAY:
             activeScreen = &radarScreen;
-            Serial.println("[MENU] Radar Display");
+            beginAircraftUpdates();
+            Serial.println("[RADAR] Entered Radar Display");
             break;
         case AppState::WIFI_SETTINGS:
             activeScreen = &wifiScreen;
             wifiScreen.setMode(0);
             wifiScreen.setSelection(0);
+            stopAircraftUpdates();
             Serial.println("[MENU] WiFi Settings");
             break;
         case AppState::WIFI_CONNECTION_STATUS:
             activeScreen = &wifiScreen;
             wifiScreen.setMode(1);
+            wifiScreen.setScrollOffset(0);
             {
                 String statusText = WiFi.isConnected() ? "Connected" : "Disconnected";
                 String ssidText = WiFi.SSID();
@@ -70,16 +71,21 @@ void App::setState(AppState newState)
                 String macText = WiFi.macAddress();
                 wifiScreen.setConnectionStatus(statusText.c_str(), ssidText.c_str(), ipText.c_str(), rssiText.c_str(), gatewayText.c_str(), subnetText.c_str(), macText.c_str());
             }
-            Serial.println("[MENU] Current Connection");
+            stopAircraftUpdates();
+            Serial.println("[WIFI] Current Connection");
             break;
         case AppState::WIFI_CHANGE_CONNECTION:
             activeScreen = &wifiScreen;
             wifiScreen.setMode(1);
-            Serial.println("[MENU] Change Connection");
-            wifi.startSetupPortal();
-            if (WiFi.status() == WL_CONNECTED)
+            wifiScreen.setScrollOffset(0);
+            Serial.println("[WIFI] Opening configuration portal");
+            if (wifi.startSetupPortal())
             {
                 Serial.println("[WIFI] Connected");
+            }
+            else
+            {
+                Serial.println("[WIFI] Configuration failed");
             }
             setState(AppState::WIFI_SETTINGS);
             break;
@@ -90,6 +96,8 @@ void App::setState(AppState newState)
 
 void App::update()
 {
+    updateAircraftData();
+
     if (activeScreen != nullptr)
     {
         activeScreen->update();
@@ -99,27 +107,33 @@ void App::update()
 
 void App::setAircraftData(const Aircraft* aircrafts, int count)
 {
-    radarScreen.setAircraft(aircrafts, count);
-    screenDirty = true;
+    if (currentState == AppState::RADAR_DISPLAY)
+    {
+        radarScreen.setAircraft(aircrafts, count);
+        screenDirty = true;
+    }
 }
 
 void App::nextPage()
 {
     if (currentState == AppState::MAIN_MENU)
     {
-        selectedIndex = (selectedIndex + 1) % 2;
-        mainMenuScreen.setSelection(selectedIndex);
+        mainMenuScreen.moveNext();
         screenDirty = true;
-        Serial.println("[MENU] Main Menu Selection");
         return;
     }
 
     if (currentState == AppState::WIFI_SETTINGS)
     {
-        selectedIndex = (selectedIndex + 1) % kWifiMenuItems;
-        wifiScreen.setSelection(selectedIndex);
+        wifiScreen.moveNext();
         screenDirty = true;
-        Serial.println("[MENU] WiFi Selection");
+        return;
+    }
+
+    if (currentState == AppState::WIFI_CONNECTION_STATUS)
+    {
+        wifiScreen.scrollDown();
+        screenDirty = true;
         return;
     }
 
@@ -127,7 +141,6 @@ void App::nextPage()
     {
         radarScreen.nextAircraft();
         screenDirty = true;
-        Serial.println("[RADAR] Selected Aircraft");
     }
 }
 
@@ -135,19 +148,22 @@ void App::previousPage()
 {
     if (currentState == AppState::MAIN_MENU)
     {
-        selectedIndex = (selectedIndex == 0) ? 1 : 0;
-        mainMenuScreen.setSelection(selectedIndex);
+        mainMenuScreen.movePrevious();
         screenDirty = true;
-        Serial.println("[MENU] Main Menu Selection");
         return;
     }
 
     if (currentState == AppState::WIFI_SETTINGS)
     {
-        selectedIndex = (selectedIndex == 0) ? kWifiMenuItems - 1 : selectedIndex - 1;
-        wifiScreen.setSelection(selectedIndex);
+        wifiScreen.movePrevious();
         screenDirty = true;
-        Serial.println("[MENU] WiFi Selection");
+        return;
+    }
+
+    if (currentState == AppState::WIFI_CONNECTION_STATUS)
+    {
+        wifiScreen.scrollUp();
+        screenDirty = true;
         return;
     }
 
@@ -155,7 +171,6 @@ void App::previousPage()
     {
         radarScreen.previousAircraft();
         screenDirty = true;
-        Serial.println("[RADAR] Selected Aircraft");
     }
 }
 
@@ -163,7 +178,7 @@ void App::buttonPressed()
 {
     if (currentState == AppState::MAIN_MENU)
     {
-        if (selectedIndex == 0)
+        if (mainMenuScreen.getSelection() == 0)
         {
             setState(AppState::RADAR_DISPLAY);
         }
@@ -176,11 +191,11 @@ void App::buttonPressed()
 
     if (currentState == AppState::WIFI_SETTINGS)
     {
-        if (selectedIndex == 0)
+        if (wifiScreen.getSelection() == 0)
         {
             setState(AppState::WIFI_CONNECTION_STATUS);
         }
-        else if (selectedIndex == 1)
+        else if (wifiScreen.getSelection() == 1)
         {
             setState(AppState::WIFI_CHANGE_CONNECTION);
         }
@@ -210,6 +225,47 @@ void App::handleLongPress()
     {
         Serial.println("[MENU] Returning to Main Menu");
         setState(AppState::MAIN_MENU);
+    }
+}
+
+void App::beginAircraftUpdates()
+{
+    aircraftUpdatesEnabled = true;
+    lastAircraftUpdateMs = 0;
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        aircraftFetcher.setLocation(51.5072f, -0.1276f, 100);
+        updateAircraftData();
+    }
+}
+
+void App::stopAircraftUpdates()
+{
+    aircraftUpdatesEnabled = false;
+}
+
+void App::updateAircraftData()
+{
+    if (!aircraftUpdatesEnabled || currentState != AppState::RADAR_DISPLAY)
+    {
+        return;
+    }
+
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        return;
+    }
+
+    const unsigned long now = millis();
+    if (lastAircraftUpdateMs != 0 && now - lastAircraftUpdateMs < kAircraftUpdateIntervalMs)
+    {
+        return;
+    }
+
+    lastAircraftUpdateMs = now;
+    if (aircraftFetcher.fetchAndPrintAircrafts())
+    {
+        setAircraftData(aircraftFetcher.getAircrafts(), aircraftFetcher.getAircraftCount());
     }
 }
 

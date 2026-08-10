@@ -22,19 +22,17 @@ bool Wifi_manager::connectWifi(const String &ssid, const String &password)
 
     if (ssid.length() > 0)
     {
-        Serial.print("Connecting to Wi-Fi network: ");
-        Serial.println(ssid);
+        Serial.println("[WIFI] Connecting to saved network");
         WiFi.begin(ssid.c_str(), password.c_str());
     }
     else if (WiFi.SSID().length() > 0)
     {
-        Serial.print("Connecting with saved Wi-Fi credentials: ");
-        Serial.println(WiFi.SSID());
+        Serial.println("[WIFI] Connecting with saved credentials");
         WiFi.begin();
     }
     else
     {
-        Serial.println("No saved Wi-Fi credentials available.");
+        Serial.println("[WIFI] No saved Wi-Fi credentials available");
         return false;
     }
 
@@ -42,50 +40,49 @@ bool Wifi_manager::connectWifi(const String &ssid, const String &password)
     while (WiFi.status() != WL_CONNECTED && millis() - startTime < 20000)
     {
         delay(500);
-        Serial.print('.');
     }
-    Serial.println();
 
     if (WiFi.status() == WL_CONNECTED)
     {
-        Serial.println("Wi-Fi connected successfully.");
-        Serial.print("IP: ");
+        Serial.println("[WIFI] Connected");
+        Serial.print("[WIFI] IP: ");
         Serial.println(WiFi.localIP());
         return true;
     }
 
-    Serial.println("Failed to connect to Wi-Fi.");
+    Serial.println("[WIFI] Connect failed");
     return false;
 }
 
-void Wifi_manager::startSetupPortal()
+bool Wifi_manager::startSetupPortal()
 {
     WiFiManager wifiManager;
     wifiManager.setAPStaticIPConfig(kApIp, kApIp, kApNetmask);
     wifiManager.setConfigPortalTimeout(180);
+    wifiManager.setConfigPortalBlocking(true);
+    wifiManager.setBreakAfterConfig(true);
 
-    Serial.println("Starting Wi-Fi setup portal...");
-    if (!wifiManager.autoConnect(kSetupSsid, kSetupPassword))
+    if (!wifiManager.startConfigPortal(kSetupSsid, kSetupPassword))
     {
-        Serial.println("Failed to connect through Wi-Fi portal.");
-        return;
+        Serial.println("[WIFI] Configuration failed");
+        return false;
     }
 
     if (WiFi.status() == WL_CONNECTED)
     {
-        Serial.println("Connected to Wi-Fi through portal.");
-        Serial.print("IP: ");
+        Serial.println("[WIFI] Connected");
+        Serial.print("[WIFI] IP: ");
         Serial.println(WiFi.localIP());
+        return true;
     }
-    else
-    {
-        Serial.println("Wi-Fi portal exited without connection.");
-    }
+
+    Serial.println("[WIFI] Configuration failed");
+    return false;
 }
 
 void Wifi_manager::clearCredentials()
 {
     WiFiManager wifiManager;
     wifiManager.resetSettings();
-    Serial.println("Wi-Fi credentials cleared.");
+    Serial.println("[WIFI] Credentials cleared");
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AircraftData.h"
+#include "Menu.h"
 #include <Arduino.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_GC9A01A.h>
@@ -21,9 +22,13 @@ public:
     bool update() override;
 
     void setSelection(int selection);
+    int getSelection() const;
+    void moveNext();
+    void movePrevious();
+    void selectCurrent();
 
 private:
-    int selectedIndex = 0;
+    Menu menu;
 };
 
 class RadarScreen : public Screen
@@ -61,12 +66,20 @@ public:
     bool update() override;
 
     void setSelection(int selection);
+    int getSelection() const;
+    void moveNext();
+    void movePrevious();
+    void selectCurrent();
     void setMode(int mode);
     void setConnectionStatus(const char* status, const char* ssid, const char* ip, const char* rssi, const char* gateway, const char* subnet, const char* mac);
+    void scrollUp();
+    void scrollDown();
+    void setScrollOffset(int offset);
 
 private:
-    int selectedIndex = 0;
+    Menu menu;
     int mode = 0;
+    int scrollOffset = 0;
     char status[24] = "Disconnected";
     char ssid[32] = "None";
     char ipAddress[24] = "N/A";
@@ -74,6 +87,8 @@ private:
     char gateway[24] = "N/A";
     char subnet[24] = "N/A";
     char macAddress[24] = "N/A";
+
+    void drawConnectionPage() const;
 };
 
 extern Adafruit_GC9A01A tft;

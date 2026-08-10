@@ -6,6 +6,6 @@ class Wifi_manager
 public:
     Wifi_manager();
     bool connectWifi(const String &ssid = "", const String &password = "");
-    void startSetupPortal();
+    bool startSetupPortal();
     void clearCredentials();
 };

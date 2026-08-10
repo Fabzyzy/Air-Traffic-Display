@@ -8,64 +8,55 @@ namespace
     constexpr uint16_t kBgColor = 0x0000;
     constexpr uint16_t kTextColor = 0xFFFF;
     constexpr uint16_t kHighlightColor = 0x07E0;
-
-    void drawHeader(const char* title)
-    {
-        tft.fillScreen(kBgColor);
-        tft.setTextWrap(false);
-        tft.setTextSize(2);
-        tft.setTextColor(kTextColor);
-        tft.setCursor(10, 10);
-        tft.print(title);
-    }
-}
-
-MainMenuScreen::MainMenuScreen()
-{
-    selectedIndex = 0;
-}
-
-void MainMenuScreen::setSelection(int selection)
-{
-    selectedIndex = selection;
-}
-
-void MainMenuScreen::draw()
-{
-    drawHeader("Main Menu");
-
-    tft.setTextSize(2);
-    tft.setTextColor(kTextColor);
-    tft.setCursor(20, 60);
-    tft.print("Radar Display");
-
-    tft.setCursor(20, 100);
-    tft.print("WiFi Settings");
-
-    tft.setTextColor(kHighlightColor);
-    const int y = selectedIndex == 0 ? 60 : 100;
-    tft.setCursor(10, y);
-    tft.print("> ");
-}
-
-bool MainMenuScreen::update()
-{
-    return false;
-}
-
-namespace
-{
     constexpr int kCenterX = 120;
     constexpr int kCenterY = 120;
     constexpr int kRadius = 90;
     constexpr uint16_t kRadarColor = 0x07E0;
     constexpr uint16_t kCompassColor = 0xFFFF;
     constexpr uint16_t kSelectionColor = 0xF81F;
+    constexpr int kMainMenuItems = 2;
+    constexpr int kWifiMenuItems = 3;
+    static const char* kMainMenuLabels[kMainMenuItems] = {"Radar Display", "WiFi Settings"};
+    static const char* kWifiMenuLabels[kWifiMenuItems] = {"Current Connection", "Change Connection", "Back"};
+}
 
-    int clampToDisplay(int value)
-    {
-        return max(5, min(235, value));
-    }
+MainMenuScreen::MainMenuScreen()
+{
+    menu.setItems(kMainMenuLabels, kMainMenuItems);
+}
+
+void MainMenuScreen::setSelection(int selection)
+{
+    menu.setSelection(selection);
+}
+
+int MainMenuScreen::getSelection() const
+{
+    return menu.getSelection();
+}
+
+void MainMenuScreen::moveNext()
+{
+    menu.moveNext();
+}
+
+void MainMenuScreen::movePrevious()
+{
+    menu.movePrevious();
+}
+
+void MainMenuScreen::selectCurrent()
+{
+}
+
+void MainMenuScreen::draw()
+{
+    menu.drawList("Main Menu", 18, 58, 24, kMainMenuItems, kTextColor, kHighlightColor);
+}
+
+bool MainMenuScreen::update()
+{
+    return false;
 }
 
 RadarScreen::RadarScreen()
@@ -265,13 +256,32 @@ bool RadarScreen::update()
 
 WifiScreen::WifiScreen()
 {
-    selectedIndex = 0;
+    menu.setItems(kWifiMenuLabels, kWifiMenuItems);
     mode = 0;
 }
 
 void WifiScreen::setSelection(int selection)
 {
-    selectedIndex = selection;
+    menu.setSelection(selection);
+}
+
+int WifiScreen::getSelection() const
+{
+    return menu.getSelection();
+}
+
+void WifiScreen::moveNext()
+{
+    menu.moveNext();
+}
+
+void WifiScreen::movePrevious()
+{
+    menu.movePrevious();
+}
+
+void WifiScreen::selectCurrent()
+{
 }
 
 void WifiScreen::setMode(int newMode)
@@ -288,68 +298,76 @@ void WifiScreen::setConnectionStatus(const char* newStatus, const char* newSsid,
     strncpy(gateway, newGateway, sizeof(gateway) - 1);
     strncpy(subnet, newSubnet, sizeof(subnet) - 1);
     strncpy(macAddress, newMac, sizeof(macAddress) - 1);
+    scrollOffset = 0;
+}
+
+void WifiScreen::scrollUp()
+{
+    scrollOffset = max(0, scrollOffset - 1);
+}
+
+void WifiScreen::scrollDown()
+{
+    scrollOffset = min(6, scrollOffset + 1);
+}
+
+void WifiScreen::setScrollOffset(int offset)
+{
+    scrollOffset = offset;
+}
+
+void WifiScreen::drawConnectionPage() const
+{
+    tft.fillScreen(kBgColor);
+    tft.setTextWrap(false);
+    tft.setTextSize(2);
+    tft.setTextColor(kTextColor);
+    tft.setCursor(18, 16);
+    tft.print("WiFi Status");
+
+    tft.setTextSize(1);
+    const char* lines[] = {
+        "Status:", status,
+        "SSID:", ssid,
+        "IP:", ipAddress,
+        "RSSI:", rssiValue,
+        "Gateway:", gateway,
+        "Subnet:", subnet,
+        "MAC:", macAddress};
+    const int visibleLines = 8;
+    const int lineCount = 14;
+    const int startIndex = max(0, min(scrollOffset, lineCount - visibleLines));
+
+    int y = 46;
+    for (int i = 0; i < visibleLines; ++i)
+    {
+        const int index = startIndex + i;
+        if (index >= lineCount)
+        {
+            break;
+        }
+
+        const char* lineText = lines[index];
+        if (lineText == nullptr)
+        {
+            continue;
+        }
+
+        tft.setCursor(16, y);
+        tft.print(lineText);
+        y += 16;
+    }
 }
 
 void WifiScreen::draw()
 {
-    drawHeader("WiFi Settings");
-
     if (mode == 1)
     {
-        tft.setTextSize(1);
-        tft.setTextColor(kTextColor);
-        tft.setCursor(10, 45);
-        tft.print("SSID: ");
-        tft.println(ssid);
-
-        tft.setCursor(10, 58);
-        tft.print("Status: ");
-        tft.println(status);
-
-        tft.setCursor(10, 71);
-        tft.print("IP: ");
-        tft.println(ipAddress);
-
-        tft.setCursor(10, 84);
-        tft.print("RSSI: ");
-        tft.println(rssiValue);
-
-        tft.setCursor(10, 97);
-        tft.print("Gateway: ");
-        tft.println(gateway);
-
-        tft.setCursor(10, 110);
-        tft.print("Subnet: ");
-        tft.println(subnet);
-
-        tft.setCursor(10, 123);
-        tft.print("MAC: ");
-        tft.println(macAddress);
+        drawConnectionPage();
         return;
     }
 
-    tft.setTextSize(1);
-    tft.setTextColor(kTextColor);
-
-    const char* items[] = {"Current Connection", "Change Connection", "Back"};
-    const int yPositions[] = {70, 95, 120};
-
-    for (int i = 0; i < 3; ++i)
-    {
-        const int y = yPositions[i];
-        tft.setCursor(20, y);
-        if (selectedIndex == i)
-        {
-            tft.setTextColor(kHighlightColor);
-            tft.print("> ");
-            tft.setTextColor(kTextColor);
-        }
-        else
-        {
-            tft.print("  ");
-        }
-        tft.println(items[i]);
-    }
+    menu.drawList("WiFi Settings", 18, 58, 24, kWifiMenuItems, kTextColor, kHighlightColor);
 }
 
 bool WifiScreen::update()

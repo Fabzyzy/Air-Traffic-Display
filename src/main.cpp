@@ -25,9 +25,6 @@ AircraftDataFetcher aircraftFetcher;
 
 Adafruit_GC9A01A tft(TFT_CS, TFT_DC, TFT_RST);
 
-unsigned long lastAircraftFetch = 0;
-const unsigned long kAircraftFetchIntervalMs = 10000;
-
 void setup()
 {
   Serial.begin(115200);
@@ -74,40 +71,10 @@ void setup()
 
   Serial.println("[BOOT] Entering Main Menu");
   app.begin();
-
-  if (WiFi.status() == WL_CONNECTED)
-  {
-#if DEBUG_WIFI
-    Serial.println("[WIFI] Connected to WiFi.");
-    Serial.println("[BOOT] Starting Radar...");
-#else
-    Serial.println("[WIFI] Connected");
-#endif
-    aircraftFetcher.setLocation(51.5072f, -0.1276f, 100);
-
-    delay(2000);
-    if (aircraftFetcher.fetchAndPrintAircrafts())
-    {
-      app.setAircraftData(aircraftFetcher.getAircrafts(), aircraftFetcher.getAircraftCount());
-    }
-  }
 }
 
 void loop()
 {
   encoder.update();
   app.update();
-
-  unsigned long now = millis();
-  if (now - lastAircraftFetch >= kAircraftFetchIntervalMs)
-  {
-    lastAircraftFetch = now;
-    if (WiFi.status() == WL_CONNECTED)
-    {
-      if (aircraftFetcher.fetchAndPrintAircrafts())
-      {
-        app.setAircraftData(aircraftFetcher.getAircrafts(), aircraftFetcher.getAircraftCount());
-      }
-    }
-  }
 }

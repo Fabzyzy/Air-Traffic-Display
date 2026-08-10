@@ -25,9 +25,11 @@ public:
 
 private:
     AppState currentState = AppState::MAIN_MENU;
-    int selectedIndex = 0;
     bool screenDirty = true;
     bool hasEnteredState = false;
+    bool aircraftUpdatesEnabled = false;
+    unsigned long lastAircraftUpdateMs = 0;
+    static constexpr unsigned long kAircraftUpdateIntervalMs = 5000;
 
     MainMenuScreen mainMenuScreen;
     RadarScreen radarScreen;
@@ -36,5 +38,8 @@ private:
 
     void setState(AppState newState);
     void drawCurrentScreen();
+    void beginAircraftUpdates();
+    void stopAircraftUpdates();
+    void updateAircraftData();
 };
 
