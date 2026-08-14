@@ -5,7 +5,7 @@
 #include <ArduinoJson.h>
 
 #define DEBUG_GENERAL 1
-#define DEBUG_HTTP 0
+#define DEBUG_HTTP 1
 #define DEBUG_AIRCRAFT 0
 
 namespace
@@ -40,6 +40,9 @@ void AircraftDataFetcher::setLocation(float latitude, float longitude, int radiu
 
 bool AircraftDataFetcher::fetchAndPrintAircrafts()
 {
+    aircraftDataValid_ = false;
+    aircraftCount_ = 0;
+
     if (WiFi.status() != WL_CONNECTED)
     {
 #if DEBUG_GENERAL || DEBUG_HTTP
@@ -47,6 +50,8 @@ bool AircraftDataFetcher::fetchAndPrintAircrafts()
 #endif
         return false;
     }
+
+    Serial.println("[AIRCRAFT] Requesting data...");
 
     HTTPClient http;
     String url = buildUrl(latitude_, longitude_, radiusKm_);
@@ -57,8 +62,16 @@ bool AircraftDataFetcher::fetchAndPrintAircrafts()
     if (httpCode <= 0)
     {
 #if DEBUG_HTTP
-        Serial.print("[HTTP] GET failed: ");
-        Serial.println(http.errorToString(httpCode));
+        Serial.print("[AIRCRAFT] HTTP FAILED");
+        Serial.print(" (code ");
+        Serial.print(httpCode);
+        Serial.print(")");
+        if (http.errorToString(httpCode).length() > 0)
+        {
+            Serial.print(": ");
+            Serial.print(http.errorToString(httpCode));
+        }
+        Serial.println();
 #endif
         http.end();
         return false;
@@ -77,11 +90,18 @@ bool AircraftDataFetcher::fetchAndPrintAircrafts()
     String payload = http.getString();
     http.end();
 
+    Serial.print("[AIRCRAFT] HTTP ");
+    Serial.print(httpCode);
+    Serial.print(", ");
+    Serial.print(payload.length());
+    Serial.println(" bytes");
+
     if (payload.length() == 0)
     {
 #if DEBUG_HTTP
-        Serial.println("[HTTP] Response payload is empty");
+        Serial.println("[HTTP] Response payload is empty; treating as unavailable aircraft feed");
 #endif
+        http.end();
         return false;
     }
 
@@ -117,6 +137,7 @@ bool AircraftDataFetcher::fetchAndPrintAircrafts()
 
         JsonObject aircraft = value.as<JsonObject>();
 
+
         Aircraft entry;
         entry.callsign = safeString(aircraft["flight"]);
         entry.latitude = aircraft["lat"].as<float>();
@@ -146,15 +167,47 @@ bool AircraftDataFetcher::fetchAndPrintAircrafts()
 #endif
     }
 
+
+    if (aircraftCount_ == 0)
+    {
+        Serial.print("[AIRCRAFT] API returned ");
+        Serial.print(aircrafts.size());
+        Serial.print(" but ");
+        Serial.print(aircraftCount_);
+        Serial.println(" remain after filtering");
+        return false;
+    }
+
+    aircraftCount_ = aircraftCount_;
+    aircraftDataValid_ = true;
+    lastSuccessfulUpdateMs_ = millis();
+    Serial.print("[AIRCRAFT] Parsed ");
+    Serial.print(aircraftCount_);
+    Serial.println(" aircraft");
     return true;
 }
 
 const Aircraft* AircraftDataFetcher::getAircrafts() const
 {
-    return aircraftCount_ > 0 ? aircrafts_ : nullptr;
+    return aircraftDataValid_ && aircraftCount_ > 0 ? aircrafts_ : nullptr;
 }
 
 int AircraftDataFetcher::getAircraftCount() const
 {
-    return aircraftCount_;
+    return aircraftDataValid_ ? aircraftCount_ : 0;
+}
+
+bool AircraftDataFetcher::hasValidAircraftData() const
+{
+    return aircraftDataValid_ && aircraftCount_ > 0;
+}
+
+bool AircraftDataFetcher::hasStaleData() const
+{
+    return aircraftDataValid_ && millis() - lastSuccessfulUpdateMs_ > 30000;
+}
+
+unsigned long AircraftDataFetcher::getLastSuccessfulUpdateMs() const
+{
+    return lastSuccessfulUpdateMs_;
 }

@@ -11,12 +11,17 @@ namespace
     constexpr int kCenterX = 120;
     constexpr int kCenterY = 120;
     constexpr int kRadius = 90;
-    constexpr uint16_t kRadarColor = 0x07E0;
     constexpr uint16_t kCompassColor = 0xFFFF;
     constexpr uint16_t kSelectionColor = 0xF81F;
+
     constexpr int kMainMenuItems = 2;
+    constexpr int kSettingsItems = 4;
+    constexpr int kDisplaySettingsItems = 4;
     constexpr int kWifiMenuItems = 3;
-    static const char* kMainMenuLabels[kMainMenuItems] = {"Radar Display", "WiFi Settings"};
+
+    static const char* kMainMenuLabels[kMainMenuItems] = {"Radar Display", "Settings"};
+    static const char* kSettingsLabels[kSettingsItems] = {"Radar", "Display", "WiFi", "Back"};
+    static const char* kDisplayLabels[kDisplaySettingsItems] = {"Radius +", "Radius -", "Color", "Back"};
     static const char* kWifiMenuLabels[kWifiMenuItems] = {"Current Connection", "Change Connection", "Back"};
 }
 
@@ -45,10 +50,6 @@ void MainMenuScreen::movePrevious()
     menu.movePrevious();
 }
 
-void MainMenuScreen::selectCurrent()
-{
-}
-
 void MainMenuScreen::draw()
 {
     menu.drawList("Main Menu", 18, 58, 24, kMainMenuItems, kTextColor, kHighlightColor);
@@ -59,9 +60,131 @@ bool MainMenuScreen::update()
     return false;
 }
 
+SettingsScreen::SettingsScreen()
+{
+    menu.setItems(kSettingsLabels, kSettingsItems);
+}
+
+void SettingsScreen::setSelection(int selection)
+{
+    menu.setSelection(selection);
+}
+
+int SettingsScreen::getSelection() const
+{
+    return menu.getSelection();
+}
+
+void SettingsScreen::moveNext()
+{
+    menu.moveNext();
+}
+
+void SettingsScreen::movePrevious()
+{
+    menu.movePrevious();
+}
+
+void SettingsScreen::draw()
+{
+    menu.drawList("Settings", 18, 58, 24, kSettingsItems, kTextColor, kHighlightColor);
+}
+
+bool SettingsScreen::update()
+{
+    return false;
+}
+
+DisplaySettingsScreen::DisplaySettingsScreen()
+{
+    menu.setItems(kDisplayLabels, kDisplaySettingsItems);
+    radiusKm = Config::kMinDetectionRadiusKm;
+    currentColor = DisplayColors::kGreen;
+    selectedField = 0;
+}
+
+void DisplaySettingsScreen::setSelection(int selection)
+{
+    menu.setSelection(selection);
+    selectedField = selection;
+}
+
+int DisplaySettingsScreen::getSelection() const
+{
+    return menu.getSelection();
+}
+
+void DisplaySettingsScreen::moveNext()
+{
+    menu.moveNext();
+    selectedField = menu.getSelection();
+}
+
+void DisplaySettingsScreen::movePrevious()
+{
+    menu.movePrevious();
+    selectedField = menu.getSelection();
+}
+
+void DisplaySettingsScreen::setRadius(int radius)
+{
+    radiusKm = constrain(radius, Config::kMinDetectionRadiusKm, Config::kMaxDetectionRadiusKm);
+}
+
+int DisplaySettingsScreen::getRadius() const
+{
+    return radiusKm;
+}
+
+void DisplaySettingsScreen::setColor(uint16_t color)
+{
+    currentColor = color;
+}
+
+uint16_t DisplaySettingsScreen::getColor() const
+{
+    return currentColor;
+}
+
+void DisplaySettingsScreen::draw()
+{
+    tft.fillScreen(kBgColor);
+    tft.setTextWrap(false);
+    tft.setTextSize(2);
+    tft.setTextColor(kTextColor);
+    tft.setCursor(18, 18);
+    tft.print("Display");
+
+    tft.setTextSize(1);
+    tft.setTextColor(kTextColor);
+    tft.setCursor(18, 52);
+    tft.print("Radius:");
+    tft.setCursor(100, 52);
+    tft.print(radiusKm);
+    tft.print(" km");
+
+    tft.setCursor(18, 72);
+    tft.print("Color:");
+    tft.setCursor(100, 72);
+    tft.print(currentColor == DisplayColors::kGreen ? "GREEN" : "AMBER");
+
+    menu.drawList("Options", 18, 96, 20, kDisplaySettingsItems, kTextColor, kHighlightColor);
+}
+
+bool DisplaySettingsScreen::update()
+{
+    return false;
+}
+
 RadarScreen::RadarScreen()
 {
     selectedHex = "";
+    primaryColor = DisplayColors::kGreen;
+}
+
+void RadarScreen::setPrimaryColor(uint16_t color)
+{
+    primaryColor = color;
 }
 
 void RadarScreen::setAircraft(const Aircraft* aircraftsData, int count)
@@ -197,7 +320,7 @@ void RadarScreen::drawAircraft(const Aircraft& aircraft, bool selected) const
     }
 
     const int radius = 4;
-    const uint16_t color = selected ? kSelectionColor : kRadarColor;
+    const uint16_t color = selected ? kSelectionColor : primaryColor;
     tft.fillCircle(x, y, radius, color);
 
     int heading = aircraft.heading % 360;
@@ -210,22 +333,28 @@ void RadarScreen::drawAircraft(const Aircraft& aircraft, bool selected) const
     const int dy = int(-cos(headingRad) * 7.0f);
 
     tft.drawLine(x, y, x + dx, y + dy, color);
-    tft.drawLine(x + dx, y + dy, x + dx / 2, y + dy / 2, color);
-    tft.drawLine(x + dx, y + dy, x - dx / 2, y - dy / 2, color);
-
     if (selected)
     {
         drawSelectionCursor(x, y);
     }
 }
 
+void RadarScreen::drawStatusMessage(const char* message) const
+{
+    tft.setTextWrap(false);
+    tft.setTextSize(1);
+    tft.setTextColor(kTextColor);
+    tft.setCursor(18, 210);
+    tft.print(message);
+}
+
 void RadarScreen::draw()
 {
     tft.fillScreen(kBgColor);
-    tft.drawCircle(kCenterX, kCenterY, kRadius, kRadarColor);
-    tft.drawCircle(kCenterX, kCenterY, kRadius / 2, kRadarColor);
-    tft.drawLine(kCenterX, kCenterY - kRadius, kCenterX, kCenterY + kRadius, kRadarColor);
-    tft.drawLine(kCenterX - kRadius, kCenterY, kCenterX + kRadius, kCenterY, kRadarColor);
+    tft.drawCircle(kCenterX, kCenterY, kRadius, primaryColor);
+    tft.drawCircle(kCenterX, kCenterY, kRadius / 2, primaryColor);
+    tft.drawLine(kCenterX, kCenterY - kRadius, kCenterX, kCenterY + kRadius, primaryColor);
+    tft.drawLine(kCenterX - kRadius, kCenterY, kCenterX + kRadius, kCenterY, primaryColor);
 
     tft.setTextWrap(false);
     tft.setTextSize(1);
@@ -246,6 +375,11 @@ void RadarScreen::draw()
             const bool selected = aircrafts[i].hex == selectedHex;
             drawAircraft(aircrafts[i], selected);
         }
+    }
+
+    if (aircraftCount <= 0)
+    {
+        drawStatusMessage("No aircraft in range");
     }
 }
 
@@ -280,10 +414,6 @@ void WifiScreen::movePrevious()
     menu.movePrevious();
 }
 
-void WifiScreen::selectCurrent()
-{
-}
-
 void WifiScreen::setMode(int newMode)
 {
     mode = newMode;
@@ -298,6 +428,13 @@ void WifiScreen::setConnectionStatus(const char* newStatus, const char* newSsid,
     strncpy(gateway, newGateway, sizeof(gateway) - 1);
     strncpy(subnet, newSubnet, sizeof(subnet) - 1);
     strncpy(macAddress, newMac, sizeof(macAddress) - 1);
+    status[sizeof(status) - 1] = '\0';
+    ssid[sizeof(ssid) - 1] = '\0';
+    ipAddress[sizeof(ipAddress) - 1] = '\0';
+    rssiValue[sizeof(rssiValue) - 1] = '\0';
+    gateway[sizeof(gateway) - 1] = '\0';
+    subnet[sizeof(subnet) - 1] = '\0';
+    macAddress[sizeof(macAddress) - 1] = '\0';
     scrollOffset = 0;
 }
 
@@ -316,47 +453,134 @@ void WifiScreen::setScrollOffset(int offset)
     scrollOffset = offset;
 }
 
+void WifiScreen::setStatusText(const char* text)
+{
+    strncpy(statusText, text, sizeof(statusText) - 1);
+    statusText[sizeof(statusText) - 1] = '\0';
+}
+
+void WifiScreen::setSavedNetworks(const String* networks, int count)
+{
+    savedNetworkCount = max(0, min(count, 5));
+    for (int i = 0; i < savedNetworkCount; ++i)
+    {
+        savedNetworks[i] = networks[i];
+    }
+}
+
 void WifiScreen::drawConnectionPage() const
 {
     tft.fillScreen(kBgColor);
     tft.setTextWrap(false);
     tft.setTextSize(2);
     tft.setTextColor(kTextColor);
-    tft.setCursor(18, 16);
-    tft.print("WiFi Status");
+    tft.setCursor(14, 18);
+    tft.print("Current WiFi");
 
     tft.setTextSize(1);
-    const char* lines[] = {
-        "Status:", status,
-        "SSID:", ssid,
-        "IP:", ipAddress,
-        "RSSI:", rssiValue,
-        "Gateway:", gateway,
-        "Subnet:", subnet,
-        "MAC:", macAddress};
-    const int visibleLines = 8;
-    const int lineCount = 14;
-    const int startIndex = max(0, min(scrollOffset, lineCount - visibleLines));
+    const bool connected = strcmp(status, "Connected") == 0 || strcmp(status, "connected") == 0;
 
-    int y = 46;
+    if (!connected)
+    {
+        tft.setTextColor(kHighlightColor);
+        tft.setCursor(24, 58);
+        tft.print("NOT CONNECTED");
+        tft.setTextColor(kTextColor);
+        tft.setCursor(20, 84);
+        tft.print("No active");
+        tft.setCursor(22, 98);
+        tft.print("WiFi connection");
+        return;
+    }
+
+    const char* lines[] = {"Connected", "SSID:", ssid, "IP:", ipAddress, "RSSI:", rssiValue};
+    const int visibleLines = 7;
+    int y = 52;
+
     for (int i = 0; i < visibleLines; ++i)
     {
-        const int index = startIndex + i;
-        if (index >= lineCount)
-        {
-            break;
-        }
-
-        const char* lineText = lines[index];
-        if (lineText == nullptr)
+        if (lines[i] == nullptr)
         {
             continue;
         }
 
-        tft.setCursor(16, y);
-        tft.print(lineText);
-        y += 16;
+        tft.setCursor(18, y);
+        tft.print(lines[i]);
+        y += 14;
     }
+}
+
+void WifiScreen::drawSavedConnectionPage() const
+{
+    tft.fillScreen(kBgColor);
+    tft.setTextWrap(false);
+    tft.setTextSize(2);
+    tft.setTextColor(kTextColor);
+    tft.setCursor(12, 18);
+    tft.print("Saved WiFi");
+
+    tft.setTextSize(1);
+    int y = 52;
+    const int maxVisible = min(5, savedNetworkCount);
+    for (int i = 0; i < maxVisible; ++i)
+    {
+        if (i == 0)
+        {
+            tft.setTextColor(kHighlightColor);
+        }
+        else
+        {
+            tft.setTextColor(kTextColor);
+        }
+        tft.setCursor(18, y);
+        tft.print(savedNetworks[i]);
+        y += 18;
+    }
+
+    if (savedNetworkCount == 0)
+    {
+        tft.setTextColor(kTextColor);
+        tft.setCursor(20, 90);
+        tft.print("No saved networks");
+    }
+}
+
+void WifiScreen::drawSetupPage() const
+{
+    tft.fillScreen(kBgColor);
+    tft.setTextWrap(false);
+    tft.setTextSize(2);
+    tft.setTextColor(kTextColor);
+    tft.setCursor(20, 28);
+    tft.print("WiFi Setup");
+    tft.setTextSize(1);
+    tft.setTextColor(kHighlightColor);
+    tft.setCursor(28, 70);
+    tft.print("Starting...");
+    tft.setTextColor(kTextColor);
+    tft.setCursor(18, 90);
+    tft.print("Connect phone");
+    tft.setCursor(18, 104);
+    tft.print("to setup network");
+    tft.setCursor(24, 128);
+    tft.print("RADAR_SETUP");
+}
+
+void WifiScreen::drawStatusPage(const char* title, const char* line1, const char* line2) const
+{
+    tft.fillScreen(kBgColor);
+    tft.setTextWrap(false);
+    tft.setTextSize(2);
+    tft.setTextColor(kTextColor);
+    tft.setCursor(18, 18);
+    tft.print(title);
+    tft.setTextSize(1);
+    tft.setTextColor(kHighlightColor);
+    tft.setCursor(20, 64);
+    tft.print(line1);
+    tft.setTextColor(kTextColor);
+    tft.setCursor(18, 90);
+    tft.print(line2);
 }
 
 void WifiScreen::draw()
@@ -364,6 +588,18 @@ void WifiScreen::draw()
     if (mode == 1)
     {
         drawConnectionPage();
+        return;
+    }
+
+    if (mode == 2)
+    {
+        drawSetupPage();
+        return;
+    }
+
+    if (mode == 3)
+    {
+        drawSavedConnectionPage();
         return;
     }
 
@@ -396,16 +632,11 @@ void drawVintageRadarSweep()
 
     for (int i = 0; i < 360; i += 45)
     {
-        float rad = i * 0.017453f;
-        int x = cx + cos(rad) * radius;
-        int y = cy + sin(rad) * radius;
-        tft.drawLine(cx, cy, x, y, 0x0320);
+        const float rad = i * 0.017453f;
+        const int x = cx + int(cos(rad) * radius);
+        const int y = cy + int(sin(rad) * radius);
+        tft.drawLine(cx, cy, x, y, 0x0520);
     }
-
-    float rad = 0.0f;
-    int x = cx + cos(rad) * radius;
-    int y = cy + sin(rad) * radius;
-    tft.drawLine(cx, cy, x, y, 0xFFFF);
 
     tft.setTextWrap(false);
     tft.setTextSize(1);

@@ -20,6 +20,9 @@ public:
     void setLocation(float latitude, float longitude, int radiusKm);
     const Aircraft* getAircrafts() const;
     int getAircraftCount() const;
+    bool hasValidAircraftData() const;
+    bool hasStaleData() const;
+    unsigned long getLastSuccessfulUpdateMs() const;
 
 private:
     static constexpr int kMaxAircraft = 32;
@@ -29,4 +32,6 @@ private:
     int radiusKm_ = 100;
     Aircraft aircrafts_[kMaxAircraft];
     int aircraftCount_ = 0;
+    bool aircraftDataValid_ = false;
+    unsigned long lastSuccessfulUpdateMs_ = 0;
 };
