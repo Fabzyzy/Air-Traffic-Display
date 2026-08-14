@@ -11,53 +11,107 @@ App::App() : activeScreen(&mainMenuScreen)
 {
 }
 
+void App::loadDisplaySettings()
+{
+    displayPrefs.begin("display", true);
+    detectionRadiusKm = displayPrefs.getInt("radius", Config::kDefaultDetectionRadiusKm);
+    const int colorIndex = displayPrefs.getInt("color", 0);
+    displayPrefs.end();
+    detectionRadiusKm = constrain(detectionRadiusKm, Config::kMinDetectionRadiusKm, Config::kMaxDetectionRadiusKm);
+    radarColor = Ui::colorAt(colorIndex);
+    applyTheme();
+}
+
+void App::saveDisplaySettings()
+{
+    displayPrefs.begin("display", false);
+    displayPrefs.putInt("radius", detectionRadiusKm);
+    displayPrefs.putInt("color", Ui::colorIndex(radarColor));
+    displayPrefs.end();
+}
+
+void App::applyTheme()
+{
+    Ui::setPrimary(radarColor);
+    displaySettingsScreen.setRadius(detectionRadiusKm);
+    displaySettingsScreen.setColor(radarColor);
+    radarScreen.setPrimaryColor(radarColor);
+    radarScreen.setRadiusKm(detectionRadiusKm);
+    radarScreen.setCenter(Config::kRadarCenterLatitude, Config::kRadarCenterLongitude);
+}
+
 void App::begin()
 {
+    loadDisplaySettings();
     navigationDepth = 0;
     setState(AppState::MAIN_MENU, false);
 }
 
 void App::drawCurrentScreen()
 {
-    if (!screenDirty)
+    if (!screenDirty || activeScreen == nullptr)
     {
         return;
     }
-
-    if (activeScreen != nullptr)
-    {
-        activeScreen->draw();
-    }
+    activeScreen->draw();
     screenDirty = false;
 }
 
-void App::pushState(AppState state)
+void App::leaveTransientWifi()
 {
-    if (navigationDepth < 7)
+    if (currentState == AppState::WIFI_PORTAL)
     {
-        navigationStack[navigationDepth++] = state;
+        wifi.stopPortal();
+    }
+    if (currentState == AppState::WIFI_CONNECTING)
+    {
+        wifi.cancelConnecting();
     }
 }
 
-void App::popState()
+void App::goBack()
 {
-    if (navigationDepth > 0)
+    leaveTransientWifi();
+    if (navigationDepth <= 0)
     {
-        currentState = navigationStack[--navigationDepth];
-        screenDirty = true;
+        setState(AppState::MAIN_MENU, false);
+        return;
+    }
+    const AppState previous = navigationStack[--navigationDepth];
+    setState(previous, false);
+}
+
+void App::refreshWifiStatus()
+{
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        const String rssi = String(WiFi.RSSI()) + " dBm";
+        wifiScreen.setConnectionStatus(true, WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), rssi.c_str());
     }
     else
     {
-        currentState = AppState::MAIN_MENU;
-        screenDirty = true;
+        wifiScreen.setConnectionStatus(false, "", "", "");
     }
+}
+
+void App::refreshSavedNetworks()
+{
+    String networks[Config::kMaxSavedNetworks];
+    int count = 0;
+    wifi.loadSavedNetworks(networks, count);
+    wifiScreen.setSavedNetworks(networks, count);
 }
 
 void App::setState(AppState newState, bool withPush)
 {
-    if (withPush && currentState != newState && navigationDepth < 7)
+    if (withPush && currentState != newState && navigationDepth < 8)
     {
         navigationStack[navigationDepth++] = currentState;
+    }
+
+    if (currentState == AppState::WIFI_PORTAL && newState != AppState::WIFI_PORTAL)
+    {
+        wifi.stopPortal();
     }
 
     currentState = newState;
@@ -91,13 +145,22 @@ void App::setState(AppState newState, bool withPush)
         case AppState::RADAR_DISPLAY:
             activeScreen = &radarScreen;
             radarScreen.setPrimaryColor(radarColor);
+            radarScreen.setRadiusKm(detectionRadiusKm);
+            radarScreen.setWifiConnected(WiFi.status() == WL_CONNECTED);
+            radarScreen.resetSweep();
             beginAircraftUpdates();
-            Serial.println("[RADAR] Entered Radar Display");
+            Serial.println("[MENU] Radar Display");
+            break;
+
+        case AppState::PLANE_DETAILS:
+            activeScreen = &planeDetailsScreen;
+            stopAircraftUpdates();
+            Serial.println("[MENU] Plane Details");
             break;
 
         case AppState::WIFI_SETTINGS:
             activeScreen = &wifiScreen;
-            wifiScreen.setMode(0);
+            wifiScreen.setMode(WifiScreen::Mode::Menu);
             wifiScreen.setSelection(0);
             stopAircraftUpdates();
             Serial.println("[MENU] WiFi Settings");
@@ -105,68 +168,40 @@ void App::setState(AppState newState, bool withPush)
 
         case AppState::WIFI_CURRENT_CONNECTION:
             activeScreen = &wifiScreen;
-            wifiScreen.setMode(1);
-            wifiScreen.setScrollOffset(0);
-            {
-                String statusText = WiFi.isConnected() ? "Connected" : "Disconnected";
-                String ssidText = WiFi.SSID();
-                if (ssidText.length() == 0)
-                {
-                    ssidText = "None";
-                }
-                String ipText = WiFi.localIP().toString();
-                if (!WiFi.isConnected())
-                {
-                    ipText = "N/A";
-                }
-                String rssiText = WiFi.isConnected() ? String(WiFi.RSSI()) + " dBm" : "N/A";
-                String gatewayText = WiFi.gatewayIP().toString();
-                String subnetText = WiFi.subnetMask().toString();
-                String macText = WiFi.macAddress();
-                wifiScreen.setConnectionStatus(statusText.c_str(), ssidText.c_str(), ipText.c_str(), rssiText.c_str(), gatewayText.c_str(), subnetText.c_str(), macText.c_str());
-            }
+            wifiScreen.setMode(WifiScreen::Mode::Current);
+            refreshWifiStatus();
             stopAircraftUpdates();
-            Serial.println("[WIFI] Current Connection");
+            Serial.println("[MENU] Current Connection");
             break;
 
         case AppState::WIFI_SAVED_CONNECTIONS:
             activeScreen = &wifiScreen;
-            wifiScreen.setMode(3);
+            wifiScreen.setMode(WifiScreen::Mode::Saved);
+            refreshSavedNetworks();
             wifiScreen.setSelection(0);
             stopAircraftUpdates();
-            Serial.println("[WIFI] Saved Connections");
+            Serial.println("[MENU] Saved Connections");
             break;
 
-        case AppState::WIFI_NEW_CONNECTION:
-        case AppState::WIFI_CHANGE_CONNECTION:
+        case AppState::WIFI_PORTAL:
             activeScreen = &wifiScreen;
-            wifiScreen.setMode(2);
-            wifiScreen.setScrollOffset(0);
-            Serial.println("[WIFI] Configuration started");
-            if (wifi.startSetupPortal())
-            {
-                Serial.println("[WIFI] Connected");
-                wifiScreen.setMode(1);
-                String statusText = "Connected";
-                String ssidText = WiFi.SSID();
-                String ipText = WiFi.localIP().toString();
-                String rssiText = String(WiFi.RSSI()) + " dBm";
-                String gatewayText = WiFi.gatewayIP().toString();
-                String subnetText = WiFi.subnetMask().toString();
-                String macText = WiFi.macAddress();
-                wifiScreen.setConnectionStatus(statusText.c_str(), ssidText.c_str(), ipText.c_str(), rssiText.c_str(), gatewayText.c_str(), subnetText.c_str(), macText.c_str());
-            }
-            else
-            {
-                Serial.println("[WIFI] Configuration failed");
-                wifiScreen.setMode(2);
-            }
+            wifiScreen.setMode(WifiScreen::Mode::Portal);
+            stopAircraftUpdates();
+            Serial.println("[WIFI] Portal open");
+            wifi.startSetupPortal();
             break;
 
-        case AppState::PLANE_DETAILS:
-            activeScreen = &radarScreen;
+        case AppState::WIFI_CONNECTING:
+            activeScreen = &wifiScreen;
+            wifiScreen.setMode(WifiScreen::Mode::Connecting);
             stopAircraftUpdates();
-            Serial.println("[RADAR] Plane details view");
+            break;
+
+        case AppState::WIFI_RESULT:
+            activeScreen = &wifiScreen;
+            wifiScreen.setMode(WifiScreen::Mode::Result);
+            resultShownMs = millis();
+            stopAircraftUpdates();
             break;
     }
 
@@ -175,22 +210,46 @@ void App::setState(AppState newState, bool withPush)
 
 void App::update()
 {
+    if (currentState == AppState::WIFI_PORTAL)
+    {
+        bool success = false;
+        if (wifi.pollPortal(success))
+        {
+            resultSuccess = success;
+            const String ssid = WiFi.SSID();
+            wifiScreen.setStatusText(success ? "Connected" : "Connection Failed", "SSID:",
+                                     ssid.length() > 0 ? ssid.c_str() : "");
+            setState(AppState::WIFI_RESULT, false);
+            return;
+        }
+    }
+
+    if (currentState == AppState::WIFI_CONNECTING)
+    {
+        bool success = false;
+        if (wifi.pollConnecting(success))
+        {
+            resultSuccess = success;
+            wifiScreen.setStatusText(success ? "Connected" : "Connection Failed", "SSID:", wifi.connectingSsid());
+            setState(AppState::WIFI_RESULT, false);
+            return;
+        }
+    }
+
+    if (currentState == AppState::WIFI_RESULT && resultSuccess &&
+        millis() - resultShownMs >= Config::kSuccessHintMs)
+    {
+        goBack();
+        return;
+    }
+
     updateAircraftData();
 
-    if (activeScreen != nullptr)
+    if (activeScreen != nullptr && activeScreen->update())
     {
-        activeScreen->update();
-    }
-    drawCurrentScreen();
-}
-
-void App::setAircraftData(const Aircraft* aircrafts, int count)
-{
-    if (currentState == AppState::RADAR_DISPLAY || currentState == AppState::PLANE_DETAILS)
-    {
-        radarScreen.setAircraft(aircrafts, count);
         screenDirty = true;
     }
+    drawCurrentScreen();
 }
 
 void App::nextPage()
@@ -204,17 +263,24 @@ void App::nextPage()
             settingsScreen.moveNext();
             break;
         case AppState::DISPLAY_SETTINGS:
-            displaySettingsScreen.moveNext();
+            if (displaySettingsScreen.isEditing())
+            {
+                displaySettingsScreen.adjust(1);
+            }
+            else
+            {
+                displaySettingsScreen.moveNext();
+            }
             break;
         case AppState::WIFI_SETTINGS:
+        case AppState::WIFI_SAVED_CONNECTIONS:
             wifiScreen.moveNext();
             break;
-        case AppState::WIFI_CURRENT_CONNECTION:
-            wifiScreen.scrollDown();
-            break;
         case AppState::RADAR_DISPLAY:
-        case AppState::PLANE_DETAILS:
             radarScreen.nextAircraft();
+            break;
+        case AppState::PLANE_DETAILS:
+            planeDetailsScreen.scroll(1);
             break;
         default:
             return;
@@ -233,17 +299,24 @@ void App::previousPage()
             settingsScreen.movePrevious();
             break;
         case AppState::DISPLAY_SETTINGS:
-            displaySettingsScreen.movePrevious();
+            if (displaySettingsScreen.isEditing())
+            {
+                displaySettingsScreen.adjust(-1);
+            }
+            else
+            {
+                displaySettingsScreen.movePrevious();
+            }
             break;
         case AppState::WIFI_SETTINGS:
+        case AppState::WIFI_SAVED_CONNECTIONS:
             wifiScreen.movePrevious();
             break;
-        case AppState::WIFI_CURRENT_CONNECTION:
-            wifiScreen.scrollUp();
-            break;
         case AppState::RADAR_DISPLAY:
-        case AppState::PLANE_DETAILS:
             radarScreen.previousAircraft();
+            break;
+        case AppState::PLANE_DETAILS:
+            planeDetailsScreen.scroll(-1);
             break;
         default:
             return;
@@ -269,39 +342,36 @@ void App::buttonPressed()
         case AppState::SETTINGS:
             if (settingsScreen.getSelection() == 0)
             {
-                setState(AppState::RADAR_DISPLAY);
-            }
-            else if (settingsScreen.getSelection() == 1)
-            {
                 setState(AppState::DISPLAY_SETTINGS);
             }
-            else if (settingsScreen.getSelection() == 2)
+            else if (settingsScreen.getSelection() == 1)
             {
                 setState(AppState::WIFI_SETTINGS);
             }
             else
             {
-                setState(AppState::MAIN_MENU);
+                goBack();
             }
             return;
 
         case AppState::DISPLAY_SETTINGS:
-            if (displaySettingsScreen.getSelection() == 0)
+            if (displaySettingsScreen.isEditing())
             {
-                setDetectionRadius(detectionRadiusKm + Config::kRadiusStepKm);
+                detectionRadiusKm = displaySettingsScreen.getRadius();
+                radarColor = displaySettingsScreen.getColor();
+                applyTheme();
+                saveDisplaySettings();
+                displaySettingsScreen.confirmEdit();
+                screenDirty = true;
+                return;
             }
-            else if (displaySettingsScreen.getSelection() == 1)
+            if (displaySettingsScreen.getSelection() == 2)
             {
-                setDetectionRadius(detectionRadiusKm - Config::kRadiusStepKm);
+                goBack();
+                return;
             }
-            else if (displaySettingsScreen.getSelection() == 2)
-            {
-                setRadarColor(radarColor == DisplayColors::kGreen ? DisplayColors::kAmber : DisplayColors::kGreen);
-            }
-            else
-            {
-                setState(AppState::SETTINGS);
-            }
+            displaySettingsScreen.beginEdit();
+            screenDirty = true;
             return;
 
         case AppState::WIFI_SETTINGS:
@@ -311,56 +381,83 @@ void App::buttonPressed()
             }
             else if (wifiScreen.getSelection() == 1)
             {
-                setState(AppState::WIFI_CHANGE_CONNECTION);
+                setState(AppState::WIFI_SAVED_CONNECTIONS);
             }
             else if (wifiScreen.getSelection() == 2)
             {
-                setState(AppState::SETTINGS);
+                setState(AppState::WIFI_PORTAL);
             }
             else
             {
-                setState(AppState::MAIN_MENU);
+                goBack();
+            }
+            return;
+
+        case AppState::WIFI_SAVED_CONNECTIONS:
+            if (wifiScreen.isNewConnectionSelected() || wifiScreen.getSavedNetworkCount() == 0)
+            {
+                setState(AppState::WIFI_PORTAL);
+                return;
+            }
+            {
+                const String ssid = wifiScreen.getSavedNetwork(wifiScreen.getSelection());
+                wifiScreen.setConnectionStatus(false, ssid.c_str(), "", "");
+                if (wifi.startSavedConnect(ssid))
+                {
+                    setState(AppState::WIFI_CONNECTING);
+                }
+                else
+                {
+                    resultSuccess = false;
+                    wifiScreen.setStatusText("Connection Failed", "SSID:", ssid.c_str());
+                    setState(AppState::WIFI_RESULT, false);
+                }
             }
             return;
 
         case AppState::WIFI_CURRENT_CONNECTION:
-        case AppState::WIFI_NEW_CONNECTION:
-        case AppState::WIFI_CHANGE_CONNECTION:
-        case AppState::WIFI_SAVED_CONNECTIONS:
-            setState(AppState::WIFI_SETTINGS);
+        case AppState::WIFI_RESULT:
+            goBack();
             return;
 
         case AppState::RADAR_DISPLAY:
-        case AppState::PLANE_DETAILS:
-            setState(AppState::MAIN_MENU);
+            if (radarScreen.hasSelection() && radarScreen.getSelectedAircraft() != nullptr)
+            {
+                planeDetailsScreen.setAircraft(*radarScreen.getSelectedAircraft(),
+                                               Config::kRadarCenterLatitude,
+                                               Config::kRadarCenterLongitude);
+                setState(AppState::PLANE_DETAILS);
+            }
             return;
 
         default:
-            setState(AppState::MAIN_MENU);
             return;
     }
 }
 
 void App::handleLongPress()
 {
-    if (navigationDepth > 0)
+    if (currentState == AppState::DISPLAY_SETTINGS && displaySettingsScreen.isEditing())
     {
-        popState();
+        displaySettingsScreen.cancelEdit();
+        screenDirty = true;
         return;
     }
 
-    setState(AppState::MAIN_MENU, false);
+    if (currentState == AppState::MAIN_MENU)
+    {
+        return;
+    }
+
+    goBack();
 }
 
 void App::beginAircraftUpdates()
 {
     aircraftUpdatesEnabled = true;
-    lastAircraftUpdateMs = 0;
-    if (WiFi.status() == WL_CONNECTED)
-    {
-        aircraftFetcher.setLocation(51.5072f, -0.1276f, 100);
-        updateAircraftData();
-    }
+    lastAircraftRequestMs = 0;
+    aircraftFetcher.setLocation(Config::kRadarCenterLatitude, Config::kRadarCenterLongitude, detectionRadiusKm);
+    updateAircraftData();
 }
 
 void App::stopAircraftUpdates()
@@ -375,47 +472,37 @@ void App::updateAircraftData()
         return;
     }
 
-    if (WiFi.status() != WL_CONNECTED)
+    radarScreen.setWifiConnected(WiFi.status() == WL_CONNECTED);
+
+    bool fetchSuccess = false;
+    if (aircraftFetcher.consumeFetchResult(fetchSuccess))
+    {
+        const int count = aircraftFetcher.getAircraftCount();
+        radarScreen.setAircraft(aircraftFetcher.getAircrafts(), count);
+        Serial.print("[RADAR] Aircraft update: ");
+        Serial.print(radarScreen.getContactCount());
+        Serial.println(" contacts");
+        if (count > 0 && radarScreen.getContactCount() == 0)
+        {
+            Serial.print("[AIRCRAFT] API returned ");
+            Serial.print(count);
+            Serial.println(", displayable 0");
+        }
+        screenDirty = true;
+    }
+
+    if (WiFi.status() != WL_CONNECTED || aircraftFetcher.isFetchInProgress())
     {
         return;
     }
 
     const unsigned long now = millis();
-    if (lastAircraftUpdateMs != 0 && now - lastAircraftUpdateMs < Config::kAircraftRefreshMs)
+    if (lastAircraftRequestMs != 0 && now - lastAircraftRequestMs < Config::kAircraftRefreshMs)
     {
         return;
     }
 
-    lastAircraftUpdateMs = now;
-    if (aircraftFetcher.fetchAndPrintAircrafts())
-    {
-        setAircraftData(aircraftFetcher.getAircrafts(), aircraftFetcher.getAircraftCount());
-    }
+    lastAircraftRequestMs = now;
+    aircraftFetcher.setLocation(Config::kRadarCenterLatitude, Config::kRadarCenterLongitude, detectionRadiusKm);
+    aircraftFetcher.requestFetch();
 }
-
-void App::setDetectionRadius(int radiusKm)
-{
-    detectionRadiusKm = constrain(radiusKm, Config::kMinDetectionRadiusKm, Config::kMaxDetectionRadiusKm);
-    displaySettingsScreen.setRadius(detectionRadiusKm);
-    radarScreen.setPrimaryColor(radarColor);
-    screenDirty = true;
-}
-
-int App::getDetectionRadius() const
-{
-    return detectionRadiusKm;
-}
-
-void App::setRadarColor(uint16_t color)
-{
-    radarColor = color;
-    displaySettingsScreen.setColor(radarColor);
-    radarScreen.setPrimaryColor(radarColor);
-    screenDirty = true;
-}
-
-uint16_t App::getRadarColor() const
-{
-    return radarColor;
-}
-

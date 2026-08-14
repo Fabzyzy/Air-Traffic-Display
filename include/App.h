@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Screen.h"
+#include <Preferences.h>
 
 enum class AppState
 {
@@ -8,12 +9,13 @@ enum class AppState
     SETTINGS,
     DISPLAY_SETTINGS,
     RADAR_DISPLAY,
+    PLANE_DETAILS,
     WIFI_SETTINGS,
     WIFI_CURRENT_CONNECTION,
     WIFI_SAVED_CONNECTIONS,
-    WIFI_NEW_CONNECTION,
-    WIFI_CHANGE_CONNECTION,
-    PLANE_DETAILS
+    WIFI_PORTAL,
+    WIFI_CONNECTING,
+    WIFI_RESULT
 };
 
 class App
@@ -26,36 +28,38 @@ public:
     void previousPage();
     void buttonPressed();
     void handleLongPress();
-    void setAircraftData(const Aircraft* aircrafts, int count);
-
-    void setDetectionRadius(int radiusKm);
-    int getDetectionRadius() const;
-    void setRadarColor(uint16_t color);
-    uint16_t getRadarColor() const;
 
 private:
     AppState currentState = AppState::MAIN_MENU;
-    AppState navigationStack[8];
+    AppState navigationStack[8] = {};
     int navigationDepth = 0;
     bool screenDirty = true;
     bool aircraftUpdatesEnabled = false;
-    unsigned long lastAircraftUpdateMs = 0;
-    int detectionRadiusKm = 50;
+    unsigned long lastAircraftRequestMs = 0;
+    unsigned long resultShownMs = 0;
+    bool resultSuccess = false;
+    int detectionRadiusKm = Config::kDefaultDetectionRadiusKm;
     uint16_t radarColor = DisplayColors::kGreen;
+    Preferences displayPrefs;
 
     MainMenuScreen mainMenuScreen;
     SettingsScreen settingsScreen;
     DisplaySettingsScreen displaySettingsScreen;
     RadarScreen radarScreen;
+    PlaneDetailsScreen planeDetailsScreen;
     WifiScreen wifiScreen;
     Screen* activeScreen = nullptr;
 
     void setState(AppState newState, bool withPush = true);
+    void goBack();
     void drawCurrentScreen();
     void beginAircraftUpdates();
     void stopAircraftUpdates();
     void updateAircraftData();
-    void pushState(AppState state);
-    void popState();
+    void applyTheme();
+    void loadDisplaySettings();
+    void saveDisplaySettings();
+    void refreshWifiStatus();
+    void refreshSavedNetworks();
+    void leaveTransientWifi();
 };
-

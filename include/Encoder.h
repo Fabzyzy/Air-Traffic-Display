@@ -32,7 +32,6 @@ private:
     void updateInput(DebouncedInput& input, uint8_t pin, unsigned long now);
     void enqueueEvent(EventType event);
     void dispatchLegacyEvent(EventType event);
-    void printEvent(EventType event);
 
     DebouncedInput clkInput;
     DebouncedInput dtInput;

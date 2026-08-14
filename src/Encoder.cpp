@@ -2,9 +2,7 @@
 #include "App.h"
 #include <Arduino.h>
 
-#define DEBUG_GENERAL 1
 #define DEBUG_ENCODER 0
-#define DEBUG_ENCODER_RAW 0
 
 extern App app;
 
@@ -18,13 +16,6 @@ namespace
 
 void Encoder::begin()
 {
-#if DEBUG_ENCODER
-    Serial.println("Encoder Pins");
-    Serial.println("CLK = GPIO25");
-    Serial.println("DT = GPIO26");
-    Serial.println("SW = GPIO32");
-#endif
-
     pinMode(Config::kEncoderClkPin, INPUT_PULLUP);
     pinMode(Config::kEncoderDtPin, INPUT_PULLUP);
     pinMode(Config::kEncoderSwPin, INPUT_PULLUP);
@@ -115,86 +106,20 @@ void Encoder::dispatchLegacyEvent(EventType event)
     }
 }
 
-void Encoder::printEvent(EventType event)
-{
-#if DEBUG_ENCODER
-    switch (event)
-    {
-        case EventType::CW:
-            Serial.println("[ENCODER] CW");
-            break;
-        case EventType::CCW:
-            Serial.println("[ENCODER] CCW");
-            break;
-        case EventType::Pressed:
-            Serial.println("[ENCODER] PRESS");
-            break;
-        case EventType::Released:
-            Serial.println("[ENCODER] RELEASE");
-            break;
-        case EventType::LongPress:
-            Serial.println("[ENCODER] LONG PRESS");
-            break;
-        default:
-            break;
-    }
-#endif
-}
-
 void Encoder::update()
 {
     const unsigned long now = millis();
-
     const bool previousClkState = clkInput.stableState;
-    const bool previousDtState = dtInput.stableState;
     const bool previousButtonState = buttonInput.stableState;
-    const bool previousRawClkState = clkInput.rawState;
-    const bool previousRawDtState = dtInput.rawState;
-    const bool previousRawButtonState = buttonInput.rawState;
 
     updateInput(clkInput, Config::kEncoderClkPin, now);
     updateInput(dtInput, Config::kEncoderDtPin, now);
     updateInput(buttonInput, Config::kEncoderSwPin, now);
 
-#if DEBUG_ENCODER_RAW
-    if (previousRawClkState != clkInput.rawState || previousRawDtState != dtInput.rawState || previousRawButtonState != buttonInput.rawState)
-    {
-        Serial.print("CLK=");
-        Serial.print(clkInput.rawState ? "1" : "0");
-        Serial.print(" DT=");
-        Serial.print(dtInput.rawState ? "1" : "0");
-        Serial.print(" SW=");
-        Serial.println(buttonInput.rawState ? "1" : "0");
-    }
-#endif
-
     if (clkInput.stableState != previousClkState && clkInput.stableState)
     {
         const EventType event = (dtInput.stableState != clkInput.stableState) ? EventType::CW : EventType::CCW;
         enqueueEvent(event);
-        printEvent(event);
-
-#if DEBUG_ENCODER
-        if (event == EventType::CW)
-        {
-            Serial.println("Detected sequence:");
-            Serial.println("00");
-            Serial.println("01");
-            Serial.println("11");
-            Serial.println("10");
-            Serial.println("CW");
-        }
-        else
-        {
-            Serial.println("Detected sequence:");
-            Serial.println("00");
-            Serial.println("10");
-            Serial.println("11");
-            Serial.println("01");
-            Serial.println("CCW");
-        }
-#endif
-
         dispatchLegacyEvent(event);
     }
 
@@ -202,27 +127,30 @@ void Encoder::update()
     {
         if (buttonInput.stableState)
         {
-            const EventType event = EventType::Pressed;
-            enqueueEvent(event);
-            printEvent(event);
-            dispatchLegacyEvent(event);
             buttonPressStartMs = now;
             buttonLongPressTriggered = false;
         }
         else
         {
-            const EventType event = EventType::Released;
-            enqueueEvent(event);
-            printEvent(event);
+            enqueueEvent(EventType::Released);
+            if (!buttonLongPressTriggered && buttonPressStartMs != 0)
+            {
+                enqueueEvent(EventType::Pressed);
+                dispatchLegacyEvent(EventType::Pressed);
+            }
             buttonLongPressTriggered = false;
             buttonPressStartMs = 0;
         }
     }
-    else if (buttonInput.stableState && !buttonLongPressTriggered && buttonPressStartMs != 0 && now - buttonPressStartMs >= Config::kEncoderLongPressMs)
+    else if (buttonInput.stableState && !buttonLongPressTriggered && buttonPressStartMs != 0 &&
+             now - buttonPressStartMs >= Config::kEncoderLongPressMs)
     {
-        const EventType event = EventType::LongPress;
-        enqueueEvent(event);
-        printEvent(event);
+        enqueueEvent(EventType::LongPress);
+        dispatchLegacyEvent(EventType::LongPress);
         buttonLongPressTriggered = true;
     }
+
+#if DEBUG_ENCODER
+    (void)previousButtonState;
+#endif
 }

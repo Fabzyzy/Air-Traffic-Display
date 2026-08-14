@@ -3,10 +3,9 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-
-#define DEBUG_GENERAL 1
-#define DEBUG_HTTP 1
-#define DEBUG_AIRCRAFT 0
+#include <math.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 namespace
 {
@@ -23,12 +22,68 @@ namespace
 
     String safeString(const JsonVariant& value)
     {
-        if (value.isNull() || !value.is<const char*>())
+        if (value.isNull())
         {
             return String();
         }
-        return String(value.as<const char*>());
+        if (value.is<const char*>())
+        {
+            String text = value.as<const char*>();
+            text.trim();
+            return text;
+        }
+        if (value.is<int>())
+        {
+            return String(value.as<int>());
+        }
+        return String();
     }
+
+    int safeInt(const JsonVariant& value)
+    {
+        if (value.isNull() || value.is<const char*>())
+        {
+            return 0;
+        }
+        return value.as<int>();
+    }
+
+    float safeFloat(const JsonVariant& value)
+    {
+        if (value.isNull() || value.is<const char*>())
+        {
+            return 0.0f;
+        }
+        return value.as<float>();
+    }
+
+    void fetchTask(void* param)
+    {
+        auto* self = static_cast<AircraftDataFetcher*>(param);
+        self->fetchTaskBody();
+        vTaskDelete(nullptr);
+    }
+}
+
+float geoDistanceKm(float lat1, float lon1, float lat2, float lon2)
+{
+    const float meanLat = (lat1 + lat2) * 0.5f * 0.01745329252f;
+    const float northKm = (lat2 - lat1) * 110.574f;
+    const float eastKm = (lon2 - lon1) * 111.32f * cosf(meanLat);
+    return sqrtf(northKm * northKm + eastKm * eastKm);
+}
+
+float geoBearingDeg(float lat1, float lon1, float lat2, float lon2)
+{
+    const float meanLat = (lat1 + lat2) * 0.5f * 0.01745329252f;
+    const float northKm = (lat2 - lat1) * 110.574f;
+    const float eastKm = (lon2 - lon1) * 111.32f * cosf(meanLat);
+    float deg = atan2f(eastKm, northKm) * 57.2957795f;
+    if (deg < 0.0f)
+    {
+        deg += 360.0f;
+    }
+    return deg;
 }
 
 void AircraftDataFetcher::setLocation(float latitude, float longitude, int radiusKm)
@@ -38,176 +93,207 @@ void AircraftDataFetcher::setLocation(float latitude, float longitude, int radiu
     radiusKm_ = radiusKm;
 }
 
-bool AircraftDataFetcher::fetchAndPrintAircrafts()
+bool AircraftDataFetcher::requestFetch()
 {
-    aircraftDataValid_ = false;
-    aircraftCount_ = 0;
-
-    if (WiFi.status() != WL_CONNECTED)
+    if (fetchInProgress_ || WiFi.status() != WL_CONNECTED)
     {
-#if DEBUG_GENERAL || DEBUG_HTTP
-        Serial.println("[AIRCRAFT] Wi-Fi not connected, skipping ADS-B fetch.");
-#endif
         return false;
     }
 
-    Serial.println("[AIRCRAFT] Requesting data...");
+    fetchComplete_ = false;
+    fetchInProgress_ = true;
+    const BaseType_t ok = xTaskCreatePinnedToCore(fetchTask, "adsb", 12288, this, 1, nullptr, 0);
+    if (ok != pdPASS)
+    {
+        fetchInProgress_ = false;
+        Serial.println("[AIRCRAFT] HTTP failed: task create");
+        return false;
+    }
+    return true;
+}
+
+bool AircraftDataFetcher::isFetchInProgress() const
+{
+    return fetchInProgress_;
+}
+
+bool AircraftDataFetcher::consumeFetchResult(bool& success)
+{
+    if (!fetchComplete_)
+    {
+        return false;
+    }
+
+    success = stagingSuccess_;
+    if (stagingValid_)
+    {
+        publishedCount_ = stagingCount_;
+        publishedValid_ = true;
+        for (int i = 0; i < publishedCount_; ++i)
+        {
+            published_[i] = staging_[i];
+        }
+        lastSuccessfulUpdateMs_ = millis();
+    }
+    fetchComplete_ = false;
+    return true;
+}
+
+const Aircraft* AircraftDataFetcher::getAircrafts() const
+{
+    return publishedValid_ ? published_ : nullptr;
+}
+
+int AircraftDataFetcher::getAircraftCount() const
+{
+    return publishedValid_ ? publishedCount_ : 0;
+}
+
+bool AircraftDataFetcher::hasValidAircraftData() const
+{
+    return publishedValid_;
+}
+
+unsigned long AircraftDataFetcher::getLastSuccessfulUpdateMs() const
+{
+    return lastSuccessfulUpdateMs_;
+}
+
+void AircraftDataFetcher::fetchTaskBody()
+{
+    stagingSuccess_ = fetchIntoStaging();
+    fetchComplete_ = true;
+    fetchInProgress_ = false;
+}
+
+bool AircraftDataFetcher::fetchIntoStaging()
+{
+    stagingCount_ = 0;
+    stagingValid_ = false;
+
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        Serial.println("[AIRCRAFT] HTTP failed: no wifi");
+        return false;
+    }
 
     HTTPClient http;
-    String url = buildUrl(latitude_, longitude_, radiusKm_);
+    const String url = buildUrl(latitude_, longitude_, radiusKm_);
     http.begin(url);
-    http.setTimeout(10000);
+    http.setTimeout(Config::kHttpTimeoutMs);
 
-    int httpCode = http.GET();
+    const int httpCode = http.GET();
     if (httpCode <= 0)
     {
-#if DEBUG_HTTP
-        Serial.print("[AIRCRAFT] HTTP FAILED");
-        Serial.print(" (code ");
-        Serial.print(httpCode);
-        Serial.print(")");
-        if (http.errorToString(httpCode).length() > 0)
-        {
-            Serial.print(": ");
-            Serial.print(http.errorToString(httpCode));
-        }
-        Serial.println();
-#endif
+        Serial.print("[AIRCRAFT] HTTP failed: ");
+        Serial.println(httpCode);
         http.end();
         return false;
     }
 
     if (httpCode != HTTP_CODE_OK)
     {
-#if DEBUG_HTTP
-        Serial.print("[HTTP] Returned code: ");
+        Serial.print("[AIRCRAFT] HTTP ");
         Serial.println(httpCode);
-#endif
         http.end();
         return false;
     }
 
-    String payload = http.getString();
+    const String payload = http.getString();
     http.end();
 
-    Serial.print("[AIRCRAFT] HTTP ");
-    Serial.print(httpCode);
-    Serial.print(", ");
+    Serial.print("[AIRCRAFT] HTTP 200, ");
     Serial.print(payload.length());
     Serial.println(" bytes");
 
     if (payload.length() == 0)
     {
-#if DEBUG_HTTP
-        Serial.println("[HTTP] Response payload is empty; treating as unavailable aircraft feed");
-#endif
-        http.end();
+        Serial.println("[AIRCRAFT] Empty response");
         return false;
     }
 
     JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, payload);
+    const DeserializationError error = deserializeJson(doc, payload);
     if (error)
     {
-#if DEBUG_HTTP
-        Serial.print("[HTTP] JSON parse failed: ");
+        Serial.print("[AIRCRAFT] JSON parse failed: ");
         Serial.println(error.c_str());
-#endif
+        return false;
+    }
+
+    if (!doc["ac"].is<JsonArray>())
+    {
+        Serial.println("[AIRCRAFT] JSON parse failed");
         return false;
     }
 
     JsonArray aircrafts = doc["ac"].as<JsonArray>();
-    aircraftCount_ = 0;
-#if DEBUG_AIRCRAFT
-    Serial.println("[AIRCRAFT] Aircraft data received");
-    Serial.print("[AIRCRAFT] Count: ");
-    Serial.println(aircrafts.size());
-#else
-    Serial.print("[AIRCRAFT] Updated (");
-    Serial.print(aircrafts.size());
-    Serial.println(" aircraft)");
-#endif
+    const int apiCount = static_cast<int>(aircrafts.size());
+    if (apiCount == 0)
+    {
+        Serial.println("[AIRCRAFT] API returned 0 aircraft");
+        stagingCount_ = 0;
+        stagingValid_ = true;
+        return true;
+    }
 
+    int parsed = 0;
     for (JsonVariant value : aircrafts)
     {
-        if (aircraftCount_ >= kMaxAircraft)
+        if (parsed >= Config::kMaxAircraft)
         {
             break;
         }
 
         JsonObject aircraft = value.as<JsonObject>();
-
-
         Aircraft entry;
         entry.callsign = safeString(aircraft["flight"]);
-        entry.latitude = aircraft["lat"].as<float>();
-        entry.longitude = aircraft["lon"].as<float>();
-        entry.altitude = aircraft["alt_baro"].as<int>();
-        entry.speed = aircraft["gs"].as<float>();
-        entry.heading = aircraft["track"].as<int>();
         entry.hex = safeString(aircraft["hex"]);
-        aircrafts_[aircraftCount_++] = entry;
+        entry.registration = safeString(aircraft["r"]);
+        entry.type = safeString(aircraft["t"]);
+        entry.squawk = safeString(aircraft["squawk"]);
+        entry.origin = safeString(aircraft["orig"]);
+        if (entry.origin.length() == 0)
+        {
+            entry.origin = safeString(aircraft["from"]);
+        }
+        entry.destination = safeString(aircraft["dest"]);
+        if (entry.destination.length() == 0)
+        {
+            entry.destination = safeString(aircraft["to"]);
+        }
+        entry.latitude = safeFloat(aircraft["lat"]);
+        entry.longitude = safeFloat(aircraft["lon"]);
+        entry.altitude = safeInt(aircraft["alt_baro"]);
+        entry.speed = safeFloat(aircraft["gs"]);
+        entry.heading = safeInt(aircraft["track"]);
+        if (!aircraft["baro_rate"].isNull() && !aircraft["baro_rate"].is<const char*>())
+        {
+            entry.verticalSpeed = safeInt(aircraft["baro_rate"]);
+            entry.hasVerticalSpeed = true;
+        }
+        entry.hasPosition = !aircraft["lat"].isNull() && !aircraft["lon"].isNull();
 
-#if DEBUG_AIRCRAFT
-        Serial.print("Callsign: ");
-        Serial.println(entry.callsign.length() > 0 ? entry.callsign : "<none>");
-        Serial.print("  Latitude: ");
-        Serial.println(entry.latitude, 6);
-        Serial.print("  Longitude: ");
-        Serial.println(entry.longitude, 6);
-        Serial.print("  Altitude: ");
-        Serial.println(entry.altitude);
-        Serial.print("  Speed: ");
-        Serial.println(entry.speed);
-        Serial.print("  Heading: ");
-        Serial.println(entry.heading);
-        Serial.print("  Hex: ");
-        Serial.println(entry.hex);
-        Serial.println();
-#endif
+        if (!entry.hasPosition)
+        {
+            continue;
+        }
+
+        staging_[parsed++] = entry;
     }
 
+    stagingCount_ = parsed;
+    stagingValid_ = true;
+    Serial.print("[AIRCRAFT] Parsed ");
+    Serial.print(parsed);
+    Serial.println(" aircraft");
 
-    if (aircraftCount_ == 0)
+    if (apiCount > 0 && parsed == 0)
     {
         Serial.print("[AIRCRAFT] API returned ");
-        Serial.print(aircrafts.size());
-        Serial.print(" but ");
-        Serial.print(aircraftCount_);
-        Serial.println(" remain after filtering");
-        return false;
+        Serial.print(apiCount);
+        Serial.println(", displayable 0");
     }
 
-    aircraftCount_ = aircraftCount_;
-    aircraftDataValid_ = true;
-    lastSuccessfulUpdateMs_ = millis();
-    Serial.print("[AIRCRAFT] Parsed ");
-    Serial.print(aircraftCount_);
-    Serial.println(" aircraft");
     return true;
-}
-
-const Aircraft* AircraftDataFetcher::getAircrafts() const
-{
-    return aircraftDataValid_ && aircraftCount_ > 0 ? aircrafts_ : nullptr;
-}
-
-int AircraftDataFetcher::getAircraftCount() const
-{
-    return aircraftDataValid_ ? aircraftCount_ : 0;
-}
-
-bool AircraftDataFetcher::hasValidAircraftData() const
-{
-    return aircraftDataValid_ && aircraftCount_ > 0;
-}
-
-bool AircraftDataFetcher::hasStaleData() const
-{
-    return aircraftDataValid_ && millis() - lastSuccessfulUpdateMs_ > 30000;
-}
-
-unsigned long AircraftDataFetcher::getLastSuccessfulUpdateMs() const
-{
-    return lastSuccessfulUpdateMs_;
 }
