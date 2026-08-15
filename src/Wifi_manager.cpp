@@ -162,25 +162,42 @@ bool Wifi_manager::startSetupPortal()
     stopPortal();
     portalSaved_ = false;
     portalSavedMs_ = 0;
-    WiFi.mode(WIFI_AP_STA);
+
+    WiFi.setSleep(false);
+    WiFi.mode(WIFI_AP);
+    WiFi.softAPdisconnect(true);
+    delay(100);
+    WiFi.softAPConfig(kApIp, kApIp, kApNetmask);
+    const bool apStarted = WiFi.softAP(kSetupSsid, kSetupPassword);
+    if (!apStarted)
+    {
+        Serial.println("[WIFI] AP startup failed");
+        WiFi.mode(WIFI_STA);
+        return false;
+    }
+
+    WiFi.setSleep(false);
     wifiManager_.setAPStaticIPConfig(kApIp, kApIp, kApNetmask);
+    wifiManager_.setCaptivePortalEnable(true);
     wifiManager_.setConfigPortalTimeout(0);
     wifiManager_.setConfigPortalBlocking(false);
     wifiManager_.setBreakAfterConfig(true);
     wifiManager_.setSaveConfigCallback(portalSaveCallback);
 
     const bool started = wifiManager_.startConfigPortal(kSetupSsid, kSetupPassword);
-    portalActive_ = started;
-    if (started)
+    portalActive_ = started || wifiManager_.getConfigPortalActive();
+    if (portalActive_)
     {
         Serial.println("[WIFI] Portal open");
         Serial.println("[WIFI] SSID: RADAR_SETUP");
+        Serial.print("[WIFI] AP IP: ");
+        Serial.println(WiFi.softAPIP());
     }
     else
     {
         Serial.println("[WIFI] Connection failed");
     }
-    return started;
+    return portalActive_;
 }
 
 void Wifi_manager::processPortal()
@@ -235,6 +252,7 @@ void Wifi_manager::stopPortal()
         wifiManager_.stopConfigPortal();
         Serial.println("[WIFI] Portal closed");
     }
+    WiFi.softAPdisconnect(true);
     portalActive_ = false;
     portalSaved_ = false;
     WiFi.mode(WIFI_STA);
